@@ -140,7 +140,7 @@ export class CalendarController {
     } else {
       let html = '<div class="table-responsive"><table class="data-table"><tbody>';
       for (const h of this.holidays) {
-        const d = new Date(h.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        const d = parseLocalDate(h.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
         html += `
           <tr>
             <td>
@@ -170,7 +170,7 @@ export class CalendarController {
         const badgeClass = isCancelled ? 'badge-danger' : 'badge-info';
         const badgeText = isCancelled ? 'CANCELLED' : 'EXTRA CLASS';
         
-        const d = new Date(exc.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        const d = parseLocalDate(exc.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
         
         html += `
           <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 1rem;">
@@ -315,4 +315,14 @@ function escapeHtml(unsafe) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// Utility to parse YYYY-MM-DD in local time to avoid timezone offset shifts
+function parseLocalDate(dateStr) {
+  if (!dateStr) return new Date();
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(dateStr);
 }

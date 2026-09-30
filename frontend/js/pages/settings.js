@@ -126,21 +126,21 @@ export class SettingsController {
         actionHtml = '<p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Missing Client ID/Secret in .env</p>';
       } else if (provider.connected) {
         statusHtml = '<span class="badge badge-success">Connected</span>';
-        actionHtml = `<button class="btn btn-danger btn-sm" onclick="window.App.controllers.settings.disconnectProvider('${provider.id}')">Disconnect</button>`;
+        actionHtml = `<button class="btn btn-danger btn-sm" onclick="window.App.controllers.settings.disconnectProvider('${escapeHtml(provider.id)}')">Disconnect</button>`;
       } else {
         statusHtml = '<span class="badge badge-warning">Disconnected</span>';
-        actionHtml = `<a class="btn btn-primary btn-sm" href="${provider.auth_url}">Connect</a>`;
+        actionHtml = `<a class="btn btn-primary btn-sm" href="${escapeHtml(provider.auth_url)}">Connect</a>`;
       }
 
       let accountHtml = '';
       if (provider.connected && provider.account_identifier) {
-        accountHtml = `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Account: <span style="color: var(--text-main); font-weight: 500;">${provider.account_identifier}</span></div>`;
+        accountHtml = `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Account: <span style="color: var(--text-main); font-weight: 500;">${escapeHtml(provider.account_identifier)}</span></div>`;
       }
       
       card.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
           <div>
-            <strong>${provider.name}</strong>
+            <strong>${escapeHtml(provider.name)}</strong>
             ${accountHtml}
           </div>
           ${statusHtml}
@@ -202,4 +202,16 @@ export class SettingsController {
       this.els.btnClearSession.innerText = 'Clear Session';
     }
   }
+}
+
+// Utility to prevent XSS
+function escapeHtml(unsafe) {
+  if (!unsafe) return '';
+  return unsafe
+    .toString()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }

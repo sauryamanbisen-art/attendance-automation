@@ -19,10 +19,12 @@ def test_calendar_html_served(client: TestClient) -> None:
     
     # Check for calendar modals
     assert 'id="modal-holiday"' in html
+    assert 'id="modal-holiday-title"' in html
     assert 'id="form-holiday"' in html
     assert 'id="input-holiday-date"' in html
     
     assert 'id="modal-exception"' in html
+    assert 'id="modal-exception-title"' in html
     assert 'id="form-exception"' in html
     assert 'id="input-exception-type"' in html
     assert 'id="input-exception-subject"' in html
@@ -40,3 +42,4 @@ def test_static_calendar_js_served(client: TestClient) -> None:
     assert "API.calendar.deleteHoliday" in res_js.text
     assert "API.calendar.createException" in res_js.text
     assert "API.calendar.deleteException" in res_js.text
+    assert "parseLocalDate" in res_js.text

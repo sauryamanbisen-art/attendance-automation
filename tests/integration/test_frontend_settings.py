@@ -46,6 +46,7 @@ def test_static_settings_js_served(client: TestClient) -> None:
     assert "disconnectProvider" in res_js.text
     assert "checkOAuthCallbackAlerts" in res_js.text
     assert "Provider disconnected locally" in res_js.text
+    assert "escapeHtml" in res_js.text
 
     # Validate no secrets in JS code
     assert "client_secret" not in res_js.text

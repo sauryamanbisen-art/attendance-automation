@@ -17,6 +17,8 @@ def test_subjects_html_served(client: TestClient) -> None:
     
     # Check for subject modal
     assert 'id="modal-subject"' in html
+    assert 'role="dialog"' in html
+    assert 'aria-modal="true"' in html
     assert 'id="form-subject"' in html
     assert 'id="input-subject-code"' in html
     assert 'id="input-subject-name"' in html

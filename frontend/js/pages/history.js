@@ -167,7 +167,7 @@ export class HistoryController {
         }
       }
       
-      const d = new Date(item.check_date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      const d = parseLocalDate(item.check_date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
       
       html += `
         <tr>
@@ -214,4 +214,14 @@ function escapeHtml(unsafe) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// Utility to parse YYYY-MM-DD in local time to avoid timezone offset shifts
+function parseLocalDate(dateStr) {
+  if (!dateStr) return new Date();
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(dateStr);
 }

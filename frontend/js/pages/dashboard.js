@@ -65,8 +65,11 @@ export class DashboardController {
       runCheckDryRunBadge: document.getElementById('run-check-dryrun-badge'),
       runCheckDryRunText: document.getElementById('run-check-dryrun-text'),
       runCheckSessionWarning: document.getElementById('run-check-session-warning'),
+      heroConfirmationMeta: document.getElementById('hero-confirmation-meta'),
+      heroConfirmationMetaText: document.getElementById('hero-confirmation-meta-text'),
     };
 
+    this.isLoading = false;
     this.initEvents();
   }
 
@@ -109,15 +112,35 @@ export class DashboardController {
       });
     }
 
-    // Keyboard Escape to dismiss modal safely
+    // Keyboard Escape to dismiss modal safely & Tab focus trap
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.els.modalRunCheck && this.els.modalRunCheck.style.display !== 'none' && !this.isRunningCheck) {
-        this.closeRunCheckModal();
+      if (this.els.modalRunCheck && this.els.modalRunCheck.style.display !== 'none') {
+        if (e.key === 'Escape' && !this.isRunningCheck) {
+          this.closeRunCheckModal();
+          return;
+        }
+        if (e.key === 'Tab') {
+          const focusable = this.els.modalRunCheck.querySelectorAll(
+            'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          );
+          if (focusable.length === 0) return;
+          const firstEl = focusable[0];
+          const lastEl = focusable[focusable.length - 1];
+          if (e.shiftKey && document.activeElement === firstEl) {
+            e.preventDefault();
+            lastEl.focus();
+          } else if (!e.shiftKey && document.activeElement === lastEl) {
+            e.preventDefault();
+            firstEl.focus();
+          }
+        }
       }
     });
   }
 
   async loadData() {
+    if (this.isLoading) return;
+    this.isLoading = true;
     this.showState('loading');
     try {
       const [todayRes, latestCheckRes, notifsRes, sessionRes, settingsRes] = await Promise.allSettled([
@@ -145,6 +168,8 @@ export class DashboardController {
         this.els.errorText.innerText = err.message || 'Unknown error occurred while fetching dashboard data.';
       }
       this.showState('error');
+    } finally {
+      this.isLoading = false;
     }
   }
 
@@ -160,7 +185,7 @@ export class DashboardController {
 
     // 1. Date formatting
     if (this.els.heroDateBadge) {
-      const d = new Date(data.today);
+      const d = parseLocalDate(data.today);
       this.els.heroDateBadge.innerText = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     }
 
@@ -206,6 +231,7 @@ export class DashboardController {
       }
       if (this.els.btnConfirmText) this.els.btnConfirmText.innerText = '✓ Confirmed';
       if (this.els.heroNoteContainer) this.els.heroNoteContainer.style.display = 'none';
+      if (this.els.heroConfirmationMeta) this.els.heroConfirmationMeta.style.display = 'flex';
     } else {
       this.els.heroCard.classList.remove('confirmed');
       if (this.els.heroStatusBadge) {
@@ -221,6 +247,7 @@ export class DashboardController {
       }
       if (this.els.btnConfirmText) this.els.btnConfirmText.innerText = 'I WENT TO COLLEGE';
       if (this.els.heroNoteContainer) this.els.heroNoteContainer.style.display = 'block';
+      if (this.els.heroConfirmationMeta) this.els.heroConfirmationMeta.style.display = 'none';
     }
   }
 
@@ -425,6 +452,15 @@ export class DashboardController {
 
     const checkedTime = new Date(check.checked_at).toLocaleString();
     const resultCount = check.results ? check.results.length : 0;
+    let pCount = 0, aCount = 0, uCount = 0;
+    (check.results || []).forEach(r => {
+      if (r.status === 'PRESENT') pCount++;
+      else if (r.status === 'ABSENT') aCount++;
+      else uCount++;
+    });
+    const resultBreakdown = resultCount > 0
+      ? `<span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.35rem;">(${pCount} Present, ${aCount} Absent, ${uCount} Unknown)</span>`
+      : '';
 
     this.els.recentChecks.innerHTML = `
       <div style="padding: 1rem; background: rgba(255, 255, 255, 0.02); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
@@ -437,7 +473,7 @@ export class DashboardController {
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted);">
           <span>Checked: ${escapeHtml(checkedTime)}</span>
-          <span>Subjects: <strong>${resultCount}</strong></span>
+          <span>Subjects: <strong>${resultCount}</strong> ${resultBreakdown}</span>
         </div>
         ${check.error_message ? `<div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--color-danger); background: var(--color-danger-bg); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm);">${escapeHtml(check.error_message)}</div>` : ''}
       </div>
@@ -472,6 +508,7 @@ export class DashboardController {
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem;">
               Recipient: ${escapeHtml(n.recipient_email || 'Unconfigured')} · Status: ${escapeHtml(n.status)}
             </div>
+            ${n.error_message ? `<div style="font-size: 0.75rem; color: var(--color-danger); margin-top: 0.25rem;">${escapeHtml(n.error_message)}</div>` : ''}
           </div>
           <span class="audit-time">${escapeHtml(dateStr)}</span>
         </div>
@@ -555,6 +592,14 @@ export class DashboardController {
     if (!targetDate) {
       window.dispatchEvent(new CustomEvent('app-alert', {
         detail: { message: 'Please select a target date for the check.', type: 'error' }
+      }));
+      return;
+    }
+
+    const todayStr = this.currentData?.today || new Date().toISOString().split('T')[0];
+    if (targetDate > todayStr) {
+      window.dispatchEvent(new CustomEvent('app-alert', {
+        detail: { message: 'Cannot check attendance for future dates.', type: 'error' }
       }));
       return;
     }
@@ -661,4 +706,14 @@ function escapeHtml(unsafe) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// Utility to parse YYYY-MM-DD in local time to avoid timezone offset shifts
+function parseLocalDate(dateStr) {
+  if (!dateStr) return new Date();
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(dateStr);
 }

@@ -39,6 +39,7 @@ class AppRouter {
       alertCloseBtn: document.getElementById('alert-close-btn')
     };
 
+    this.alertTimeout = null;
     this.init();
   }
 
@@ -86,6 +87,29 @@ class AppRouter {
         this.els.alertBanner.style.display = 'none';
       });
     }
+
+    // Dismiss secondary modals safely on backdrop click
+    document.addEventListener('click', (e) => {
+      if (e.target && e.target.classList && e.target.classList.contains('modal-overlay')) {
+        // If modal-run-check, DashboardController handles its own safety check (cannot close while running)
+        if (e.target.id === 'modal-run-check') return;
+        e.target.style.display = 'none';
+      }
+    });
+
+    // Dismiss secondary modals safely on Escape key
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const secondaryModals = document.querySelectorAll(
+          '#modal-timetable-slot, #modal-holiday, #modal-exception, #modal-subject'
+        );
+        secondaryModals.forEach(m => {
+          if (m && m.style.display !== 'none') {
+            m.style.display = 'none';
+          }
+        });
+      }
+    });
 
     // Handle browser back/forward and hash changes
     window.addEventListener('hashchange', () => {
@@ -180,6 +204,11 @@ class AppRouter {
   }
 
   showAlert(message, type = 'info') {
+    if (this.alertTimeout) {
+      clearTimeout(this.alertTimeout);
+      this.alertTimeout = null;
+    }
+
     this.els.alertText.innerText = message;
     
     // Reset classes
@@ -192,8 +221,9 @@ class AppRouter {
     else this.els.alertIcon.innerText = 'ℹ️';
     
     // Auto-hide after 5 seconds
-    setTimeout(() => {
+    this.alertTimeout = setTimeout(() => {
       this.els.alertBanner.style.display = 'none';
+      this.alertTimeout = null;
     }, 5000);
   }
 }

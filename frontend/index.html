@@ -125,6 +125,10 @@
                     <span>Run Attendance Check</span>
                   </button>
                 </div>
+                <div id="hero-confirmation-meta" class="hero-confirmation-meta" style="display: none;">
+                  <span aria-hidden="true">✓</span>
+                  <span id="hero-confirmation-meta-text">Attendance confirmed for today's automated verification.</span>
+                </div>
               </div>
             </div>
 
@@ -325,11 +329,11 @@
         </section>
 
         <!-- TIMETABLE MODAL (Hidden by default) -->
-        <div id="modal-timetable-slot" class="modal-overlay" style="display: none;">
+        <div id="modal-timetable-slot" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-timetable-title" style="display: none;">
           <div class="modal-content card" style="max-width: 500px; width: 100%; margin: 10vh auto;">
             <div class="card-header">
               <h3 class="card-title" id="modal-timetable-title">Add Class</h3>
-              <button class="alert-close" id="btn-close-timetable-modal">&times;</button>
+              <button class="alert-close" id="btn-close-timetable-modal" aria-label="Close modal">&times;</button>
             </div>
             
             <form id="form-timetable-slot">
@@ -449,11 +453,11 @@
         </section>
 
         <!-- HOLIDAY MODAL -->
-        <div id="modal-holiday" class="modal-overlay" style="display: none;">
+        <div id="modal-holiday" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-holiday-title" style="display: none;">
           <div class="modal-content card" style="max-width: 400px; width: 100%; margin: 10vh auto;">
             <div class="card-header">
-              <h3 class="card-title">Add Holiday</h3>
-              <button class="alert-close" id="btn-close-holiday-modal">&times;</button>
+              <h3 class="card-title" id="modal-holiday-title">Add Holiday</h3>
+              <button class="alert-close" id="btn-close-holiday-modal" aria-label="Close modal">&times;</button>
             </div>
             <form id="form-holiday">
               <div class="form-group">
@@ -473,11 +477,11 @@
         </div>
 
         <!-- EXCEPTION MODAL -->
-        <div id="modal-exception" class="modal-overlay" style="display: none;">
+        <div id="modal-exception" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-exception-title" style="display: none;">
           <div class="modal-content card" style="max-width: 500px; width: 100%; margin: 10vh auto;">
             <div class="card-header">
-              <h3 class="card-title">Add Class Exception</h3>
-              <button class="alert-close" id="btn-close-exception-modal">&times;</button>
+              <h3 class="card-title" id="modal-exception-title">Add Class Exception</h3>
+              <button class="alert-close" id="btn-close-exception-modal" aria-label="Close modal">&times;</button>
             </div>
             <form id="form-exception">
               <div class="form-group">
@@ -560,11 +564,11 @@
         </section>
 
         <!-- SUBJECT MODAL -->
-        <div id="modal-subject" class="modal-overlay" style="display: none;">
+        <div id="modal-subject" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-subject-title" style="display: none;">
           <div class="modal-content card" style="max-width: 500px; width: 100%; margin: 10vh auto;">
             <div class="card-header">
               <h3 class="card-title" id="modal-subject-title">Add Subject</h3>
-              <button class="alert-close" id="btn-close-subject-modal">&times;</button>
+              <button class="alert-close" id="btn-close-subject-modal" aria-label="Close modal">&times;</button>
             </div>
             
             <form id="form-subject">

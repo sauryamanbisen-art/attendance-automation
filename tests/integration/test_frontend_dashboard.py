@@ -30,6 +30,7 @@ def test_dashboard_enhanced_elements_served(client: TestClient) -> None:
     assert 'id="dashboard-notifications-feed"' in html
     assert 'id="btn-quick-manage-subjects"' in html
     assert 'id="tab-subjects"' in html
+    assert 'id="hero-confirmation-meta"' in html
 
 
 def test_dashboard_js_api_integration(client: TestClient) -> None:
@@ -38,11 +39,13 @@ def test_dashboard_js_api_integration(client: TestClient) -> None:
     assert res_api.status_code == 200
     assert "checks:" in res_api.text
     assert "health:" in res_api.text
+    assert "confirmations:" in res_api.text
 
     res_dash = client.get("/static/js/pages/dashboard.js")
     assert res_dash.status_code == 200
     assert "API.checks.getLatest" in res_dash.text
     assert "API.checks.run" in res_dash.text
+    assert "heroConfirmationMeta" in res_dash.text
     assert "API.checks.getNotifications" in res_dash.text
     assert "btnQuickManageSubjects" in res_dash.text
     assert "openRunCheckModal" in res_dash.text

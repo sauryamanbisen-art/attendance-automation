@@ -82,6 +82,12 @@ export const API = {
         body: JSON.stringify({ date, note }),
       });
     },
+    /**
+     * @param {string} date
+     */
+    async get(date) {
+      return apiClient(`/confirmations/${date}`);
+    },
   },
   timetable: {
     /**
