@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.attendance.dailycheck</string>
+
+    <key>WorkingDirectory</key>
+    <string>/REPLACE_WITH_PROJECT_ROOT</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/REPLACE_WITH_PROJECT_ROOT/.venv/bin/python</string>
+        <string>/REPLACE_WITH_PROJECT_ROOT/scripts/run_daily_check.py</string>
+    </array>
+
+    <!-- Run daily at 16:05 (5 minutes after 4:00 PM cutoff) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>16</integer>
+        <key>Minute</key>
+        <integer>5</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/REPLACE_WITH_PROJECT_ROOT/logs/daily_check.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/REPLACE_WITH_PROJECT_ROOT/logs/daily_check.err</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <!-- Prevent concurrent runs if previous check is still active -->
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>

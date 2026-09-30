@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Attendance Automation Daily Check at 16:05
+
+[Timer]
+# Trigger at 16:05 every day (5 minutes after 4:00 PM cutoff)
+OnCalendar=*-*-* 16:05:00
+# Run immediately if the system was asleep or powered off during the scheduled time
+Persistent=true
+
+[Install]
+WantedBy=timers.target

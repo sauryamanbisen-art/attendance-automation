@@ -1,0 +1,14 @@
+[Unit]
+Description=Attendance Automation Daily Check Service
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/REPLACE_WITH_PROJECT_ROOT
+ExecStart=/REPLACE_WITH_PROJECT_ROOT/.venv/bin/python /REPLACE_WITH_PROJECT_ROOT/scripts/run_daily_check.py
+StandardOutput=append:/REPLACE_WITH_PROJECT_ROOT/logs/daily_check.log
+StandardError=append:/REPLACE_WITH_PROJECT_ROOT/logs/daily_check.err
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
