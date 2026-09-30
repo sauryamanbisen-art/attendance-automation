@@ -238,5 +238,33 @@ export const API = {
     async disconnectProvider(providerId) {
       return apiClient(`/notifications/${providerId}/authorization`, { method: 'DELETE' });
     }
+  },
+  checks: {
+    /**
+     * @param {Object} [payload]
+     * @param {string} [payload.date]
+     * @param {string} [payload.scenario]
+     */
+    async run(payload = {}) {
+      return apiClient('/checks/run', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+    async getLatest() {
+      return apiClient('/checks/latest');
+    },
+    /**
+     * @param {number} [limit=20]
+     */
+    async getNotifications(limit = 20) {
+      return apiClient(`/checks/notifications?limit=${limit}`);
+    }
+  },
+  health: {
+    async get() {
+      return apiClient('/health');
+    }
   }
 };
+

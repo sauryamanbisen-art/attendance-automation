@@ -120,6 +120,46 @@
                     <span aria-hidden="true">🎓</span>
                     <span id="btn-confirm-text">I WENT TO COLLEGE</span>
                   </button>
+                  <button type="button" id="btn-open-run-check" class="btn btn-secondary" style="padding: 0.95rem 1.6rem; font-size: 0.95rem; border-radius: var(--radius-lg); font-weight: 700;">
+                    <span aria-hidden="true">⚡</span>
+                    <span>Run Attendance Check</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Metric Stats Grid -->
+            <div class="stats-grid">
+              <div class="stat-card" id="stat-card-check">
+                <div class="stat-icon blue">⚡</div>
+                <div class="stat-content">
+                  <span class="stat-label">Today's Check</span>
+                  <span class="stat-value" id="stat-check-status">Pending</span>
+                  <span class="stat-hint" id="stat-check-time">No check executed today</span>
+                </div>
+              </div>
+              <div class="stat-card" id="stat-card-confirmation">
+                <div class="stat-icon green">🎓</div>
+                <div class="stat-content">
+                  <span class="stat-label">Confirmation</span>
+                  <span class="stat-value" id="stat-confirmation-status">Awaiting</span>
+                  <span class="stat-hint" id="stat-confirmation-hint">Explicit student check-in</span>
+                </div>
+              </div>
+              <div class="stat-card" id="stat-card-subjects">
+                <div class="stat-icon purple">📚</div>
+                <div class="stat-content">
+                  <span class="stat-label">Portal Extraction</span>
+                  <span class="stat-value" id="stat-subject-breakdown">0 Records</span>
+                  <span class="stat-hint" id="stat-subject-subtext">Waiting for latest check</span>
+                </div>
+              </div>
+              <div class="stat-card" id="stat-card-session">
+                <div class="stat-icon amber">🔑</div>
+                <div class="stat-content">
+                  <span class="stat-label">Portal Session</span>
+                  <span class="stat-value" id="stat-session-status">Checking...</span>
+                  <span class="stat-hint" id="stat-session-hint">PWIOI Storage State</span>
                 </div>
               </div>
             </div>
@@ -138,6 +178,9 @@
                       </h3>
                       <p class="card-subtitle">Expected classes based on your timetable</p>
                     </div>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-quick-manage-subjects" title="View or configure professor email mappings">
+                      <span aria-hidden="true">👥</span> Subject Mappings
+                    </button>
                   </div>
                   <div id="dashboard-expected-classes">
                     <!-- Populated via JS -->
@@ -158,6 +201,21 @@
                      <!-- Populated via JS -->
                   </div>
                 </div>
+
+                <!-- Recent Attendance Checks -->
+                <div class="card" id="dashboard-recent-checks-card">
+                  <div class="card-header">
+                    <div>
+                      <h3 class="card-title">
+                        <span aria-hidden="true">⏱️</span> Recent Check Runs
+                      </h3>
+                      <p class="card-subtitle">Automated and manual portal execution logs</p>
+                    </div>
+                  </div>
+                  <div id="dashboard-recent-checks">
+                    <!-- Populated via JS -->
+                  </div>
+                </div>
               </div>
               
               <!-- Right Column: Status & Summaries -->
@@ -172,6 +230,21 @@
                         <p class="card-subtitle">No regular classes expected today</p>
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                <!-- Notifications & Decisions Feed -->
+                <div class="card" id="dashboard-notifications-card">
+                  <div class="card-header">
+                    <div>
+                      <h3 class="card-title">
+                        <span aria-hidden="true">🔔</span> Notification Pipeline
+                      </h3>
+                      <p class="card-subtitle">Recent alerts and evaluated safety decisions</p>
+                    </div>
+                  </div>
+                  <div id="dashboard-notifications-feed">
+                    <!-- Populated via JS -->
                   </div>
                 </div>
                 
@@ -755,8 +828,55 @@
 
       </main>
     </div>
+  <!-- MANUAL RUN MODAL -->
+  <div id="modal-run-check" class="modal-overlay" style="display: none;">
+    <div class="modal-content card" style="max-width: 540px; width: 100%; margin: 10vh auto;">
+      <div class="card-header">
+        <h3 class="card-title">
+          <span aria-hidden="true">⚡</span> Trigger Attendance Check
+        </h3>
+        <button class="alert-close" id="btn-close-run-check-modal" aria-label="Close modal">&times;</button>
+      </div>
+      <div style="padding: 1.5rem;">
+        <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.5;">
+          Trigger the live attendance extraction pipeline. The adapter will access the portal, verify daily records, and evaluate fail-closed safety decisions.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="input-run-check-date">Target Date</label>
+          <input type="date" id="input-run-check-date" class="form-input" />
+        </div>
+
+        <div id="run-check-dryrun-badge" class="badge badge-warning" style="display: flex; width: fit-content; margin-bottom: 1.25rem;">
+          <span class="badge-dot pulse"></span>
+          <span id="run-check-dryrun-text">DRY RUN Mode Active (Safe - No Emails Sent)</span>
+        </div>
+
+        <div id="run-check-progress" style="display: none; padding: 1rem; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); margin-bottom: 1.25rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div class="empty-state-icon pulse" style="font-size: 1.25rem; margin: 0;">⏳</div>
+            <div>
+              <strong style="color: var(--text-main); font-size: 0.9rem;" id="run-check-progress-title">Running Attendance Check...</strong>
+              <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;" id="run-check-progress-desc">Connecting to portal, authenticating session, and extracting records...</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="run-check-result" style="display: none; margin-bottom: 1.25rem;">
+          <!-- Populated dynamically on completion -->
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-run-check">Close</button>
+          <button type="button" class="btn btn-primary" id="btn-execute-run-check">
+            <span id="btn-execute-run-check-text">Start Check</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
+

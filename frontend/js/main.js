@@ -2,6 +2,7 @@
  * @fileoverview Main Application Shell & Router
  */
 
+import { API } from './api.js';
 import { DashboardController } from './pages/dashboard.js';
 import { TimetableController } from './pages/timetable.js';
 import { CalendarController } from './pages/calendar.js';
@@ -30,6 +31,7 @@ class AppRouter {
       sidebarCloseBtn: document.getElementById('sidebar-close-btn'),
       sidebarBackdrop: document.getElementById('sidebar-backdrop'),
       headerTitle: document.getElementById('header-title'),
+      headerStatus: document.getElementById('header-status'),
       
       alertBanner: document.getElementById('alert-banner'),
       alertText: document.getElementById('alert-text'),
@@ -84,10 +86,45 @@ class AppRouter {
       });
     }
 
+    // Load header status bar (DRY_RUN, Session readiness, Health)
+    this.loadSystemStatus();
+
     // Initial load: respect URL hash if present
     const hash = window.location.hash ? window.location.hash.replace('#', '').split('?')[0] : '';
     const initialRoute = this.routes.includes(hash) ? hash : 'dashboard';
     this.navigate(initialRoute);
+  }
+
+  async loadSystemStatus() {
+    if (!this.els.headerStatus) return;
+    try {
+      const [health, settings, session] = await Promise.allSettled([
+        API.health.get(),
+        API.settings.read(),
+        API.settings.getSessionStatus(),
+      ]);
+
+      const isDryRun = settings.status === 'fulfilled' ? settings.value.dry_run : true;
+      const isOnline = health.status === 'fulfilled' && health.value.status === 'ok';
+      const adapter = settings.status === 'fulfilled' ? settings.value.portal_adapter.toUpperCase() : 'PORTAL';
+      const hasSession = session.status === 'fulfilled' && session.value.is_authenticated;
+
+      const dryRunBadge = isDryRun 
+        ? `<span class="badge badge-warning" title="Dry Run is active - no emails will be sent"><span class="badge-dot pulse"></span>DRY RUN (Safe Mode)</span>`
+        : `<span class="badge badge-danger" title="Live Mode - email sending enabled"><span class="badge-dot pulse"></span>LIVE (Sending Active)</span>`;
+
+      const healthBadge = isOnline
+        ? `<span class="badge badge-success"><span class="badge-dot"></span>Online</span>`
+        : `<span class="badge badge-danger"><span class="badge-dot"></span>Offline</span>`;
+
+      const sessionBadge = hasSession
+        ? `<span class="badge badge-success" title="Authenticated portal session found"><span class="badge-dot"></span>${adapter} Ready</span>`
+        : `<span class="badge badge-neutral" title="No storage state found"><span class="badge-dot"></span>${adapter} Unauth</span>`;
+
+      this.els.headerStatus.innerHTML = `${dryRunBadge}${healthBadge}${sessionBadge}`;
+    } catch (e) {
+      console.debug('Could not load header status:', e);
+    }
   }
 
   navigate(route) {
