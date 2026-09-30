@@ -10,6 +10,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
 
@@ -30,6 +31,16 @@ jobs:
           playwright install --with-deps chromium
 
       - name: Run pytest test suite
+        id: pytest_step
         run: |
-          python -m pytest tests/
+          python -m pytest 2>&1 | tee pytest_output.txt
 
+      - name: Publish Test Summary
+        if: always()
+        run: |
+          if [ -f pytest_output.txt ]; then
+            echo "### Pytest Output" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 100 pytest_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
