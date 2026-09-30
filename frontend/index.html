@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attendance Automation Dashboard</title>
+  <meta name="description" content="Local-first, student-facing attendance monitoring, discrepancy detection, and automated correction platform.">
+  <!-- Google Fonts Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/shell.css">
+</head>
+<body>
+  <div class="app-shell">
+    
+    <!-- Mobile Backdrop -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" id="app-sidebar">
+      <div class="sidebar-header">
+        <a href="#" class="sidebar-brand">
+          <div class="sidebar-brand-icon" aria-hidden="true">🛡️</div>
+          <span>AGY Student</span>
+        </a>
+        <button class="sidebar-close-btn" id="sidebar-close-btn" aria-label="Close Menu">&times;</button>
+      </div>
+      
+      <nav class="sidebar-nav">
+        <a class="nav-item active" data-route="dashboard">
+          <span aria-hidden="true">📊</span> Dashboard
+        </a>
+        <a class="nav-item" data-route="timetable">
+          <span aria-hidden="true">📅</span> Timetable
+        </a>
+        <a class="nav-item" data-route="calendar">
+          <span aria-hidden="true">🌴</span> Calendar & Holidays
+        </a>
+        <a class="nav-item" data-route="subjects">
+          <span aria-hidden="true">🎓</span> Subjects
+        </a>
+        <a class="nav-item" data-route="attendance">
+          <span aria-hidden="true">📝</span> Attendance History
+        </a>
+        <a class="nav-item" data-route="settings">
+          <span aria-hidden="true">⚙️</span> Settings
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main Content Wrapper -->
+    <div class="main-wrapper">
+      
+      <!-- Top Header -->
+      <header class="top-header">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+          <button class="mobile-toggle" id="mobile-menu-btn" aria-label="Toggle Menu">☰</button>
+          <h1 class="header-title" id="header-title">Dashboard</h1>
+        </div>
+        
+        <div class="header-status-strip" id="header-status">
+          <!-- Populated by JS -->
+        </div>
+      </header>
+
+      <!-- Global Alert Banner -->
+      <div id="alert-banner" class="alert-banner" role="alert" aria-live="polite" style="margin: 1.5rem 2rem 0 2rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span id="alert-icon" aria-hidden="true">ℹ️</span>
+          <span id="alert-text">Status update ready.</span>
+        </div>
+        <button id="alert-close-btn" class="alert-close" aria-label="Dismiss alert">&times;</button>
+      </div>
+
+      <!-- Main Content Pages -->
+      <main class="main-content" id="main-content">
+        
+        <!-- DASHBOARD PAGE -->
+        <section id="page-dashboard" class="page-view active">
+          
+          <div id="dashboard-loading" class="empty-state">
+            <div class="empty-state-icon pulse">⏳</div>
+            <div class="empty-state-title">Loading Dashboard...</div>
+          </div>
+          
+          <div id="dashboard-error" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">⚠️</div>
+            <div class="empty-state-title">Failed to load dashboard</div>
+            <p class="empty-state-text" id="dashboard-error-text"></p>
+            <button class="btn btn-primary" id="btn-retry-dashboard" style="margin-top: 1rem;">Retry</button>
+          </div>
+
+          <div id="dashboard-content" style="display: none;">
+            <!-- Hero Confirmation Card -->
+            <div id="dashboard-hero-card" class="hero-card">
+              <div class="hero-top-row">
+                <div id="hero-date-badge" class="hero-date-badge">
+                  <span aria-hidden="true">📅</span>
+                  <span id="hero-date-text">Loading today's date...</span>
+                </div>
+                <span id="hero-status-badge" class="badge badge-warning">
+                  <span class="badge-dot pulse"></span>Awaiting Confirmation
+                </span>
+              </div>
+              
+              <h2 id="hero-title" class="hero-title">Did you attend college today?</h2>
+              <p id="hero-desc" class="hero-description">
+                Mark your attendance so the automated scheduler knows to verify your portal records 
+                after the cutoff time. Unconfirmed days are skipped for safety.
+              </p>
+              
+              <div class="hero-action-container">
+                <div id="hero-note-container" class="hero-note-wrapper">
+                  <input type="text" id="input-confirm-note" class="form-input" placeholder="Add optional note (e.g. Attended CS101 lab)..." />
+                </div>
+                <div class="hero-buttons-row">
+                  <button id="btn-confirm-attendance" class="btn btn-hero">
+                    <span aria-hidden="true">🎓</span>
+                    <span id="btn-confirm-text">I WENT TO COLLEGE</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Dashboard Grid -->
+            <div class="dashboard-grid">
+              
+              <!-- Left Column: Today's Schedule & Attendance -->
+              <div>
+                <!-- Today's Classes -->
+                <div class="card">
+                  <div class="card-header">
+                    <div>
+                      <h3 class="card-title">
+                        <span aria-hidden="true">📚</span> Today's Classes
+                      </h3>
+                      <p class="card-subtitle">Expected classes based on your timetable</p>
+                    </div>
+                  </div>
+                  <div id="dashboard-expected-classes">
+                    <!-- Populated via JS -->
+                  </div>
+                </div>
+                
+                <!-- Today's Attendance Records -->
+                <div class="card">
+                  <div class="card-header">
+                    <div>
+                      <h3 class="card-title">
+                        <span aria-hidden="true">📋</span> Latest Portal Records
+                      </h3>
+                      <p class="card-subtitle">Attendance status extracted from portal</p>
+                    </div>
+                  </div>
+                  <div id="dashboard-attendance-records">
+                     <!-- Populated via JS -->
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Right Column: Status & Summaries -->
+              <div>
+                <!-- Status Card -->
+                <div class="card" id="dashboard-holiday-card" style="display: none;">
+                  <div class="card-header" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div class="stat-icon purple" style="width: 48px; height: 48px; font-size: 1.5rem;">🌴</div>
+                      <div>
+                        <h3 class="card-title">Holiday Active</h3>
+                        <p class="card-subtitle">No regular classes expected today</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="card" style="margin-top: 1.5rem;">
+                  <div class="card-header">
+                    <div>
+                      <h3 class="card-title">
+                        <span aria-hidden="true">🛡️</span> Local Safety Architecture
+                      </h3>
+                      <p class="card-subtitle">Active fail-closed guarantees</p>
+                    </div>
+                  </div>
+                  <div class="checklist">
+                    <div class="checklist-item">
+                      <div class="checklist-icon">✓</div>
+                      <div class="checklist-content">
+                        <strong>Explicit Student Confirmation</strong>
+                        <p>Checks run ONLY when you explicitly confirm you went to college.</p>
+                      </div>
+                    </div>
+                    <div class="checklist-item">
+                      <div class="checklist-icon">✓</div>
+                      <div class="checklist-content">
+                        <strong>Fail-Closed Decision Engine</strong>
+                        <p>Uncertain or NOT MARKED records never convert to absences.</p>
+                      </div>
+                    </div>
+                    <div class="checklist-item">
+                      <div class="checklist-icon">✓</div>
+                      <div class="checklist-content">
+                        <strong>Local-First & Zero Telemetry</strong>
+                        <p>All database records and tokens remain solely on your local computer.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+          </div>
+        </section>
+
+        <!-- PLACEHOLDERS FOR OTHER PAGES -->
+        <!-- TIMETABLE PAGE -->
+        <section id="page-timetable" class="page-view">
+          
+          <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title"><span aria-hidden="true">📅</span> Weekly Timetable</h2>
+                <p class="card-subtitle">Manage your regular weekly classes.</p>
+              </div>
+              <button class="btn btn-primary" id="btn-show-add-slot-modal">
+                + Add Class
+              </button>
+            </div>
+          </div>
+
+          <div id="timetable-loading" class="empty-state">
+            <div class="empty-state-icon pulse">⏳</div>
+            <div class="empty-state-title">Loading Timetable...</div>
+          </div>
+
+          <div id="timetable-error" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">⚠️</div>
+            <div class="empty-state-title">Failed to load timetable</div>
+            <p class="empty-state-text" id="timetable-error-text"></p>
+            <button class="btn btn-primary" id="btn-retry-timetable" style="margin-top: 1rem;">Retry</button>
+          </div>
+
+          <!-- The Weekly Grid -->
+          <div id="timetable-content" style="display: none;">
+            <div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;" id="timetable-days-container">
+              <!-- Days will be rendered here dynamically -->
+            </div>
+          </div>
+          
+        </section>
+
+        <!-- TIMETABLE MODAL (Hidden by default) -->
+        <div id="modal-timetable-slot" class="modal-overlay" style="display: none;">
+          <div class="modal-content card" style="max-width: 500px; width: 100%; margin: 10vh auto;">
+            <div class="card-header">
+              <h3 class="card-title" id="modal-timetable-title">Add Class</h3>
+              <button class="alert-close" id="btn-close-timetable-modal">&times;</button>
+            </div>
+            
+            <form id="form-timetable-slot">
+              <input type="hidden" id="input-slot-id" />
+              
+              <div class="form-group">
+                <label class="form-label">Subject</label>
+                <select id="input-slot-subject" class="form-input" required>
+                  <option value="">Loading subjects...</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Weekday</label>
+                <select id="input-slot-weekday" class="form-input" required>
+                  <option value="0">Monday</option>
+                  <option value="1">Tuesday</option>
+                  <option value="2">Wednesday</option>
+                  <option value="3">Thursday</option>
+                  <option value="4">Friday</option>
+                  <option value="5">Saturday</option>
+                  <option value="6">Sunday</option>
+                </select>
+              </div>
+              
+              <div style="display: flex; gap: 1rem;">
+                <div class="form-group" style="flex: 1;">
+                  <label class="form-label">Start Time</label>
+                  <input type="time" id="input-slot-start" class="form-input" required />
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label class="form-label">End Time</label>
+                  <input type="time" id="input-slot-end" class="form-input" required />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Period Name (Optional)</label>
+                <input type="text" id="input-slot-period" class="form-input" placeholder="e.g. Lecture, Lab" />
+              </div>
+
+              <div style="display: flex; gap: 1rem;">
+                <div class="form-group" style="flex: 1;">
+                  <label class="form-label">Valid From (Optional)</label>
+                  <input type="date" id="input-slot-valid-from" class="form-input" />
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label class="form-label">Valid To (Optional)</label>
+                  <input type="date" id="input-slot-valid-to" class="form-input" />
+                </div>
+              </div>
+              
+              <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-timetable-modal">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btn-save-timetable-slot">Save Class</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        
+        <!-- CALENDAR PAGE -->
+        <section id="page-calendar" class="page-view">
+          
+          <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title"><span aria-hidden="true">🌴</span> Calendar & Exceptions</h2>
+                <p class="card-subtitle">Manage holidays, extra classes, and cancellations.</p>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-secondary" id="btn-show-add-holiday-modal">
+                  + Add Holiday
+                </button>
+                <button class="btn btn-primary" id="btn-show-add-exception-modal">
+                  + Add Class Exception
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="calendar-loading" class="empty-state">
+            <div class="empty-state-icon pulse">⏳</div>
+            <div class="empty-state-title">Loading Calendar...</div>
+          </div>
+
+          <div id="calendar-error" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">⚠️</div>
+            <div class="empty-state-title">Failed to load calendar</div>
+            <p class="empty-state-text" id="calendar-error-text"></p>
+            <button class="btn btn-primary" id="btn-retry-calendar" style="margin-top: 1rem;">Retry</button>
+          </div>
+
+          <div id="calendar-content" style="display: none;">
+            <div class="dashboard-grid">
+              <!-- Upcoming Holidays -->
+              <div class="card">
+                <div class="card-header">
+                  <h3 class="card-title">Upcoming Holidays</h3>
+                </div>
+                <div id="calendar-holidays-container">
+                  <!-- dynamically populated -->
+                </div>
+              </div>
+              
+              <!-- Class Exceptions -->
+              <div class="card">
+                <div class="card-header">
+                  <h3 class="card-title">Class Exceptions</h3>
+                </div>
+                <div id="calendar-exceptions-container">
+                  <!-- dynamically populated -->
+                </div>
+              </div>
+            </div>
+          </div>
+          
+        </section>
+
+        <!-- HOLIDAY MODAL -->
+        <div id="modal-holiday" class="modal-overlay" style="display: none;">
+          <div class="modal-content card" style="max-width: 400px; width: 100%; margin: 10vh auto;">
+            <div class="card-header">
+              <h3 class="card-title">Add Holiday</h3>
+              <button class="alert-close" id="btn-close-holiday-modal">&times;</button>
+            </div>
+            <form id="form-holiday">
+              <div class="form-group">
+                <label class="form-label">Date</label>
+                <input type="date" id="input-holiday-date" class="form-input" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Description</label>
+                <input type="text" id="input-holiday-desc" class="form-input" required placeholder="e.g. Diwali Break" />
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-holiday-modal">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btn-save-holiday">Save Holiday</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- EXCEPTION MODAL -->
+        <div id="modal-exception" class="modal-overlay" style="display: none;">
+          <div class="modal-content card" style="max-width: 500px; width: 100%; margin: 10vh auto;">
+            <div class="card-header">
+              <h3 class="card-title">Add Class Exception</h3>
+              <button class="alert-close" id="btn-close-exception-modal">&times;</button>
+            </div>
+            <form id="form-exception">
+              <div class="form-group">
+                <label class="form-label">Type</label>
+                <select id="input-exception-type" class="form-input" required>
+                  <option value="CANCELLED">Cancelled Class</option>
+                  <option value="EXTRA">Extra / Makeup Class</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Subject</label>
+                <select id="input-exception-subject" class="form-input" required>
+                  <option value="">Loading subjects...</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Date</label>
+                <input type="date" id="input-exception-date" class="form-input" required />
+              </div>
+              
+              <div id="exception-time-container" style="display: none;">
+                <div style="display: flex; gap: 1rem;">
+                  <div class="form-group" style="flex: 1;">
+                    <label class="form-label">Start Time (Required for Extra)</label>
+                    <input type="time" id="input-exception-start" class="form-input" />
+                  </div>
+                  <div class="form-group" style="flex: 1;">
+                    <label class="form-label">End Time (Required for Extra)</label>
+                    <input type="time" id="input-exception-end" class="form-input" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Description (Optional)</label>
+                <input type="text" id="input-exception-desc" class="form-input" placeholder="e.g. Professor is on leave" />
+              </div>
+              
+              <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-exception-modal">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btn-save-exception">Save Exception</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        
+        <!-- SUBJECTS PAGE -->
+        <section id="page-subjects" class="page-view">
+          
+          <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title"><span aria-hidden="true">🎓</span> Subjects & Instructors</h2>
+                <p class="card-subtitle">Manage enrolled courses and professor mappings for notifications.</p>
+              </div>
+              <button class="btn btn-primary" id="btn-show-add-subject-modal">
+                + Add Subject
+              </button>
+            </div>
+          </div>
+
+          <div id="subjects-loading" class="empty-state">
+            <div class="empty-state-icon pulse">⏳</div>
+            <div class="empty-state-title">Loading Subjects...</div>
+          </div>
+
+          <div id="subjects-error" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">⚠️</div>
+            <div class="empty-state-title">Failed to load subjects</div>
+            <p class="empty-state-text" id="subjects-error-text"></p>
+            <button class="btn btn-primary" id="btn-retry-subjects" style="margin-top: 1rem;">Retry</button>
+          </div>
+
+          <div id="subjects-content" style="display: none;">
+            <div class="dashboard-grid" style="grid-template-columns: 1fr;" id="subjects-container">
+              <!-- Subjects will be rendered here dynamically -->
+            </div>
+          </div>
+          
+        </section>
+
+        <!-- SUBJECT MODAL -->
+        <div id="modal-subject" class="modal-overlay" style="display: none;">
+          <div class="modal-content card" style="max-width: 500px; width: 100%; margin: 10vh auto;">
+            <div class="card-header">
+              <h3 class="card-title" id="modal-subject-title">Add Subject</h3>
+              <button class="alert-close" id="btn-close-subject-modal">&times;</button>
+            </div>
+            
+            <form id="form-subject">
+              <input type="hidden" id="input-subject-original-code" />
+              
+              <div class="form-group">
+                <label class="form-label">Subject Code</label>
+                <input type="text" id="input-subject-code" class="form-input" required placeholder="e.g. CS101" />
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Subject Name</label>
+                <input type="text" id="input-subject-name" class="form-input" required placeholder="e.g. Intro to Computer Science" />
+              </div>
+              
+              <div style="margin: 1.5rem 0 1rem 0; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-subtle);">
+                <h4 style="font-size: 0.9rem; color: var(--text-main);">Professor Mapping (Optional)</h4>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Configure these to enable automated notifications for this class.</p>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Professor Name</label>
+                <input type="text" id="input-prof-name" class="form-input" placeholder="e.g. Dr. Jane Smith" />
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Professor Email</label>
+                <input type="email" id="input-prof-email" class="form-input" placeholder="e.g. janesmith@university.edu" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Google Chat Space (Optional)</label>
+                <input type="text" id="input-chat-space" class="form-input" placeholder="e.g. spaces/AAAA12345" />
+              </div>
+              
+              <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-subject-modal">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btn-save-subject">Save Subject</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- ATTENDANCE HISTORY PAGE -->
+        <section id="page-attendance" class="page-view">
+          
+          <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title"><span aria-hidden="true">📊</span> Attendance History</h2>
+                <p class="card-subtitle">Review past attendance checks, extracted statuses, and notification events.</p>
+              </div>
+            </div>
+            
+            <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-subtle); display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Subject</label>
+                <select id="filter-history-subject" class="form-input" style="min-width: 150px;">
+                  <option value="">All Subjects</option>
+                  <!-- Dynamically populated -->
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Start Date</label>
+                <input type="date" id="filter-history-start" class="form-input" />
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">End Date</label>
+                <input type="date" id="filter-history-end" class="form-input" />
+              </div>
+              <button class="btn btn-primary" id="btn-apply-history-filters">Apply Filters</button>
+              <button class="btn btn-secondary" id="btn-clear-history-filters">Clear</button>
+            </div>
+          </div>
+
+          <div id="history-loading" class="empty-state">
+            <div class="empty-state-icon pulse">⏳</div>
+            <div class="empty-state-title">Loading History...</div>
+          </div>
+
+          <div id="history-error" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">⚠️</div>
+            <div class="empty-state-title">Failed to load history</div>
+            <p class="empty-state-text" id="history-error-text"></p>
+            <button class="btn btn-primary" id="btn-retry-history" style="margin-top: 1rem;">Retry</button>
+          </div>
+
+          <div id="history-content" style="display: none;">
+            <div class="card">
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Subject</th>
+                      <th>Status</th>
+                      <th>Reliability</th>
+                      <th>Context</th>
+                      <th>Notification</th>
+                    </tr>
+                  </thead>
+                  <tbody id="history-table-body">
+                    <!-- Populated via JS -->
+                  </tbody>
+                </table>
+              </div>
+              
+              <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 0.85rem; color: var(--text-muted);" id="history-pagination-info">
+                  Showing 0 items
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="btn btn-secondary" id="btn-history-prev" disabled>Previous</button>
+                  <button class="btn btn-secondary" id="btn-history-next" disabled>Next</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+        </section>
+
+        <!-- SETTINGS PAGE -->
+        <section id="page-settings" class="page-view">
+          <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title"><span aria-hidden="true">⚙️</span> System Settings</h2>
+                <p class="card-subtitle">View active configuration and manage portal sessions securely.</p>
+              </div>
+            </div>
+          </div>
+          
+          <div id="settings-loading" class="empty-state">
+            <div class="empty-state-icon pulse">⏳</div>
+            <div class="empty-state-title">Loading Settings...</div>
+          </div>
+
+          <div id="settings-error" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">⚠️</div>
+            <div class="empty-state-title">Failed to load configuration</div>
+            <p class="empty-state-text" id="settings-error-text"></p>
+            <button class="btn btn-primary" id="btn-retry-settings" style="margin-top: 1rem;">Retry</button>
+          </div>
+
+          <div id="settings-content" style="display: none;">
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 1.5rem;">
+              
+              <!-- Session Management -->
+              <div class="card">
+                <h3 style="margin-bottom: 1rem; color: var(--text-main); font-size: 1.1rem;">Portal Session</h3>
+                <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); padding: 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <strong>Session Status:</strong>
+                    <span id="session-status-badge" class="badge">Checking...</span>
+                  </div>
+                  <p id="session-status-text" style="font-size: 0.85rem; color: var(--text-subtle);">Verifying storage state securely...</p>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                  <button id="btn-clear-session" class="btn btn-danger" disabled>Clear Session</button>
+                </div>
+                <p style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted);">
+                  <strong>Note:</strong> Signing into the portal requires a headed browser session. If unauthenticated, use the CLI `make start` with headless mode disabled, or follow documentation to refresh credentials securely.
+                </p>
+              </div>
+
+              <!-- General Configuration -->
+              <div class="card">
+                <h3 style="margin-bottom: 1rem; color: var(--text-main); font-size: 1.1rem;">General Configuration</h3>
+                <table style="width: 100%; font-size: 0.9rem; text-align: left; border-collapse: collapse;">
+                  <tbody style="line-height: 2;">
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted); width: 40%;">App Name</th>
+                      <td id="setting-app-name" style="color: var(--text-main);"></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted);">Environment</th>
+                      <td id="setting-app-env" style="color: var(--text-main);"></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted);">Timezone</th>
+                      <td id="setting-timezone" style="color: var(--text-main);"></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted);">Log Level</th>
+                      <td id="setting-log-level" style="color: var(--text-main);"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Automation Settings -->
+              <div class="card">
+                <h3 style="margin-bottom: 1rem; color: var(--text-main); font-size: 1.1rem;">Automation Behavior</h3>
+                <table style="width: 100%; font-size: 0.9rem; text-align: left; border-collapse: collapse;">
+                  <tbody style="line-height: 2;">
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted); width: 40%;">Dry Run Mode</th>
+                      <td id="setting-dry-run"></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted);">Portal Adapter</th>
+                      <td id="setting-portal-adapter" style="color: var(--text-main);"></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted);">Browser UI</th>
+                      <td id="setting-portal-headless" style="color: var(--text-main);"></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted);">Browser Channel</th>
+                      <td id="setting-browser-channel" style="color: var(--text-main);"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Notifications -->
+              <div class="card">
+                <h3 style="margin-bottom: 1rem; color: var(--text-main); font-size: 1.1rem;">Notification Provider Config</h3>
+                <table style="width: 100%; font-size: 0.9rem; text-align: left; border-collapse: collapse; margin-bottom: 1.5rem;">
+                  <tbody style="line-height: 2;">
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted); width: 40%;">Provider</th>
+                      <td id="setting-email-provider" style="color: var(--text-main);"></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--border-subtle);">
+                      <th style="font-weight: 600; color: var(--text-muted);">Sender Identity</th>
+                      <td id="setting-notification-sender" style="color: var(--text-main);"></td>
+                    </tr>
+                  </tbody>
+                </table>
+                
+                <h3 style="margin-bottom: 1rem; color: var(--text-main); font-size: 1.1rem;">OAuth Authorization</h3>
+                <div id="notification-providers-list">
+                  <!-- Providers dynamically populated here -->
+                </div>
+              </div>
+              
+              <!-- Security Notice -->
+              <div class="card" style="grid-column: 1 / -1; background: rgba(52, 211, 153, 0.05); border-color: rgba(52, 211, 153, 0.2);">
+                <div style="display: flex; gap: 1rem; align-items: flex-start;">
+                  <div style="font-size: 2rem;">🛡️</div>
+                  <div>
+                    <h3 style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.05rem;">Security & Immutability Architecture</h3>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; margin-bottom: 0.5rem;">
+                      This application operates on a <strong>Secure Local-First Configuration</strong> model. 
+                    </p>
+                    <ul style="color: var(--text-muted); font-size: 0.9rem; padding-left: 1.5rem; line-height: 1.5;">
+                      <li>Authentication credentials, API tokens, and OAuth secrets are <strong>never</strong> transmitted to or readable from the browser.</li>
+                      <li>Environment variables (<code>.env</code>) are immutable from the UI to prevent unauthorized tampering or CSRF attacks.</li>
+                      <li>Session cookies are kept isolated inside Playwright's local <code>storage_state</code> sandbox with POSIX <code>0600</code> permissions.</li>
+                      <li>To safely update credentials or OAuth logic, edit the server-side <code>.env</code> file directly.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
