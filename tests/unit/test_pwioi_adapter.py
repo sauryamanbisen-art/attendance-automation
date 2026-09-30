@@ -1144,7 +1144,13 @@ function showDaily() {
         adapter = PWIOIPortalAdapter(config=cfg)
 
         with sync_playwright() as p:
-            b = p.chromium.launch(channel="chrome", headless=True)
+            try:
+                b = p.chromium.launch(headless=True)
+            except Exception:
+                try:
+                    b = p.chromium.launch(channel="chrome", headless=True)
+                except Exception:
+                    pytest.skip("Playwright browser not available in this environment")
             page = b.new_page()
             page.set_content(html)
 
