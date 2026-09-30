@@ -19,13 +19,17 @@ def test_dashboard_enhanced_elements_served(client: TestClient) -> None:
     # Action Button & Modal
     assert 'id="btn-open-run-check"' in html
     assert 'id="modal-run-check"' in html
+    assert 'role="dialog"' in html
+    assert 'aria-modal="true"' in html
+    assert 'id="run-check-session-warning"' in html
     assert 'id="btn-execute-run-check"' in html
     assert 'id="input-run-check-date"' in html
 
-    # Recent Checks and Notifications Cards
+    # Recent Checks, Notifications, and Navigation Links
     assert 'id="dashboard-recent-checks"' in html
     assert 'id="dashboard-notifications-feed"' in html
     assert 'id="btn-quick-manage-subjects"' in html
+    assert 'id="tab-subjects"' in html
 
 
 def test_dashboard_js_api_integration(client: TestClient) -> None:

@@ -3,6 +3,8 @@
   display: flex;
   min-height: 100vh;
   width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 /* Sidebar Navigation */
@@ -187,6 +189,9 @@
 
   .main-wrapper {
     margin-left: 0;
+    min-width: 0;
+    width: 100%;
+    max-width: 100vw;
   }
   
   .mobile-toggle {
@@ -194,11 +199,16 @@
   }
   
   .top-header {
-    padding: 0 1.25rem;
+    height: auto;
+    min-height: 64px;
+    padding: 0.75rem 1.25rem;
+    flex-wrap: wrap;
+    gap: 0.65rem;
   }
   
   .main-content {
-    padding: 1.25rem;
+    padding: 1.25rem 1rem;
+    min-width: 0;
   }
 }
 

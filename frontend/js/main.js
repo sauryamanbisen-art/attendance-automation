@@ -80,11 +80,20 @@ class AppRouter {
 
     // Setup Global Alerts
     window.addEventListener('app-alert', (e) => this.showAlert(e.detail.message, e.detail.type));
+    window.addEventListener('system-status-changed', () => this.loadSystemStatus());
     if (this.els.alertCloseBtn) {
       this.els.alertCloseBtn.addEventListener('click', () => {
         this.els.alertBanner.style.display = 'none';
       });
     }
+
+    // Handle browser back/forward and hash changes
+    window.addEventListener('hashchange', () => {
+      const hash = window.location.hash ? window.location.hash.replace('#', '').split('?')[0] : '';
+      if (this.routes.includes(hash) && hash !== this.currentRoute) {
+        this.navigate(hash);
+      }
+    });
 
     // Load header status bar (DRY_RUN, Session readiness, Health)
     this.loadSystemStatus();
@@ -131,13 +140,21 @@ class AppRouter {
     if (!this.routes.includes(route)) return;
     this.currentRoute = route;
 
-    // Update Sidebar UI
+    // Synchronize URL hash without scroll jumps
+    if (window.location.hash !== `#${route}`) {
+      window.history.replaceState(null, '', `#${route}`);
+    }
+
+    // Update Sidebar UI & Accessibility
     this.els.navItems.forEach(item => {
-      if (item.getAttribute('data-route') === route) {
+      const isMatch = item.getAttribute('data-route') === route;
+      if (isMatch) {
         item.classList.add('active');
+        item.setAttribute('aria-selected', 'true');
         this.els.headerTitle.innerText = item.innerText.trim().replace(/^[^a-zA-Z]+/, ''); 
       } else {
         item.classList.remove('active');
+        item.setAttribute('aria-selected', 'false');
       }
     });
 

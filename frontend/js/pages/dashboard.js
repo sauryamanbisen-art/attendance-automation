@@ -12,6 +12,8 @@ export class DashboardController {
     this.recentNotifications = [];
     this.sessionStatus = null;
     this.appSettings = null;
+    this.isRunningCheck = false;
+    this.lastActiveElement = null;
 
     this.els = {
       loading: document.getElementById('dashboard-loading'),
@@ -62,6 +64,7 @@ export class DashboardController {
       runCheckResult: document.getElementById('run-check-result'),
       runCheckDryRunBadge: document.getElementById('run-check-dryrun-badge'),
       runCheckDryRunText: document.getElementById('run-check-dryrun-text'),
+      runCheckSessionWarning: document.getElementById('run-check-session-warning'),
     };
 
     this.initEvents();
@@ -73,8 +76,12 @@ export class DashboardController {
     }
     if (this.els.btnQuickManageSubjects) {
       this.els.btnQuickManageSubjects.addEventListener('click', () => {
-        const subjectsTab = document.getElementById('tab-subjects');
-        if (subjectsTab) subjectsTab.click();
+        const subjectsTab = document.getElementById('tab-subjects') || document.querySelector('[data-route="subjects"]');
+        if (subjectsTab) {
+          subjectsTab.click();
+        } else if (window.App && typeof window.App.navigate === 'function') {
+          window.App.navigate('subjects');
+        }
       });
     }
     if (this.els.btnConfirm) {
@@ -92,6 +99,22 @@ export class DashboardController {
     if (this.els.btnExecuteRunCheck) {
       this.els.btnExecuteRunCheck.addEventListener('click', () => this.executeManualCheck());
     }
+
+    // Modal backdrop click handling
+    if (this.els.modalRunCheck) {
+      this.els.modalRunCheck.addEventListener('click', (e) => {
+        if (e.target === this.els.modalRunCheck && !this.isRunningCheck) {
+          this.closeRunCheckModal();
+        }
+      });
+    }
+
+    // Keyboard Escape to dismiss modal safely
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.els.modalRunCheck && this.els.modalRunCheck.style.display !== 'none' && !this.isRunningCheck) {
+        this.closeRunCheckModal();
+      }
+    });
   }
 
   async loadData() {
@@ -462,10 +485,15 @@ export class DashboardController {
   openRunCheckModal() {
     if (!this.els.modalRunCheck) return;
     
-    // Default target date to today
+    // Track active element for accessibility focus return
+    this.lastActiveElement = document.activeElement;
+
+    // Default target date to today and bound max to today (cannot check future dates)
     const todayStr = this.currentData?.today || new Date().toISOString().split('T')[0];
     if (this.els.inputRunCheckDate) {
       this.els.inputRunCheckDate.value = todayStr;
+      this.els.inputRunCheckDate.max = todayStr;
+      this.els.inputRunCheckDate.disabled = false;
     }
 
     // Update Dry Run badge
@@ -477,6 +505,12 @@ export class DashboardController {
     }
     if (this.els.runCheckDryRunBadge) {
       this.els.runCheckDryRunBadge.className = isDryRun ? 'badge badge-warning' : 'badge badge-danger';
+    }
+
+    // Session warning: show advisory box if storage state is missing
+    if (this.els.runCheckSessionWarning) {
+      const isAuth = this.sessionStatus?.is_authenticated;
+      this.els.runCheckSessionWarning.style.display = isAuth ? 'none' : 'flex';
     }
 
     // Reset progress and result displays
@@ -491,17 +525,32 @@ export class DashboardController {
     if (this.els.btnExecuteRunCheckText) {
       this.els.btnExecuteRunCheckText.innerText = 'Start Check';
     }
+    if (this.els.btnCancelRunCheck) {
+      this.els.btnCancelRunCheck.disabled = false;
+    }
+    if (this.els.btnCloseRunCheckModal) {
+      this.els.btnCloseRunCheckModal.disabled = false;
+    }
 
     this.els.modalRunCheck.style.display = 'flex';
+    setTimeout(() => {
+      if (this.els.inputRunCheckDate) this.els.inputRunCheckDate.focus();
+    }, 50);
   }
 
   closeRunCheckModal() {
+    if (this.isRunningCheck) return; // Prevent dismissing modal while check is in progress
     if (this.els.modalRunCheck) {
       this.els.modalRunCheck.style.display = 'none';
+    }
+    if (this.lastActiveElement && typeof this.lastActiveElement.focus === 'function') {
+      this.lastActiveElement.focus();
     }
   }
 
   async executeManualCheck() {
+    if (this.isRunningCheck) return;
+
     const targetDate = this.els.inputRunCheckDate ? this.els.inputRunCheckDate.value : null;
     if (!targetDate) {
       window.dispatchEvent(new CustomEvent('app-alert', {
@@ -510,6 +559,10 @@ export class DashboardController {
       return;
     }
 
+    this.isRunningCheck = true;
+    if (this.els.inputRunCheckDate) this.els.inputRunCheckDate.disabled = true;
+    if (this.els.btnCancelRunCheck) this.els.btnCancelRunCheck.disabled = true;
+    if (this.els.btnCloseRunCheckModal) this.els.btnCloseRunCheckModal.disabled = true;
     if (this.els.btnExecuteRunCheck) this.els.btnExecuteRunCheck.disabled = true;
     if (this.els.btnExecuteRunCheckText) this.els.btnExecuteRunCheckText.innerText = 'Extracting...';
     if (this.els.runCheckProgress) this.els.runCheckProgress.style.display = 'block';
@@ -567,8 +620,9 @@ export class DashboardController {
         detail: { message: `Attendance check completed with status: ${response.status}`, type: response.status === 'SUCCESS' ? 'success' : 'error' }
       }));
 
-      // Reload dashboard background metrics to reflect latest run
+      // Refresh dashboard background metrics and system header status dynamically
       this.loadData();
+      window.dispatchEvent(new CustomEvent('system-status-changed'));
 
     } catch (err) {
       if (this.els.runCheckProgress) this.els.runCheckProgress.style.display = 'none';
@@ -588,6 +642,11 @@ export class DashboardController {
       window.dispatchEvent(new CustomEvent('app-alert', {
         detail: { message: `Check failed: ${err.message}`, type: 'error' }
       }));
+    } finally {
+      this.isRunningCheck = false;
+      if (this.els.inputRunCheckDate) this.els.inputRunCheckDate.disabled = false;
+      if (this.els.btnCancelRunCheck) this.els.btnCancelRunCheck.disabled = false;
+      if (this.els.btnCloseRunCheckModal) this.els.btnCloseRunCheckModal.disabled = false;
     }
   }
 }
