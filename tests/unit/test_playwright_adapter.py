@@ -101,6 +101,48 @@ class TestPlaywrightBrowserManager:
         mode = os.stat(state_file).st_mode
         assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0  # No group or world permissions
 
+    def test_save_storage_state_captures_session_storage(self, tmp_path):
+        import json
+        state_file = str(tmp_path / "sessions" / "session_storage_test.json")
+        mock_context = MagicMock()
+        mock_page = MagicMock()
+        mock_page.is_closed.return_value = False
+        mock_page.evaluate.return_value = {"jwt_token": "mock_jwt_123", "user_id": "456"}
+
+        def fake_storage_state(path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write('{"cookies": [], "origins": []}')
+
+        mock_context.storage_state.side_effect = fake_storage_state
+
+        manager = PlaywrightBrowserManager()
+        manager._context = mock_context
+        manager._page = mock_page
+
+        manager.save_storage_state(state_file)
+
+        assert os.path.exists(state_file)
+        with open(state_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        assert data.get("sessionStorage") == {"jwt_token": "mock_jwt_123", "user_id": "456"}
+
+    def test_get_page_restores_session_storage_init_script(self):
+        mock_context = MagicMock()
+        mock_page = MagicMock()
+        mock_page.is_closed.return_value = False
+        mock_context.new_page.return_value = mock_page
+
+        manager = PlaywrightBrowserManager()
+        manager._context = mock_context
+        manager._pending_session_storage = {"auth_key": "val_123"}
+
+        page = manager.get_page()
+        assert page == mock_page
+        mock_page.add_init_script.assert_called_once()
+        script_arg = mock_page.add_init_script.call_args[0][0]
+        assert "auth_key" in script_arg
+        assert "val_123" in script_arg
+
     def test_close_cleans_up_all_resources_safely(self):
         mock_page = MagicMock()
         mock_context = MagicMock()

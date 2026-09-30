@@ -17,6 +17,7 @@ Safety Invariants:
 import logging
 import os
 import re
+import time
 from datetime import date
 from typing import Any, List, Optional, Tuple
 from unittest.mock import MagicMock
@@ -48,6 +49,35 @@ DATE_PATTERN = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 STATUS_PATTERN = re.compile(r"\b(PRESENT|ABSENT|ATTENDED|LEAVE|EXCUSED|UNEXCUSED|NOT[\s_]*MARKED|UNMARKED)\b", re.IGNORECASE)
 
 
+def _safe_locator_count(page: Any, selector: str) -> int:
+    """Safely query locator count, returning 0 if unattached, failing, or unmocked."""
+    try:
+        if hasattr(page, "locator"):
+            cnt = page.locator(selector).count()
+            if isinstance(cnt, int):
+                return cnt
+            if hasattr(cnt, "__int__") and not isinstance(cnt, MagicMock):
+                return int(cnt)
+    except Exception:
+        pass
+    return 0
+
+
+def _safe_url(url: Optional[str]) -> str:
+    """Return URL stripped of sensitive query parameters and fragments.
+
+    Prevents leaking OAuth tokens, flow parameters, rart tokens, or secrets into logs/errors.
+    """
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        parsed = urlsplit(str(url))
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    except Exception:
+        return str(url).split("?")[0].split("#")[0]
+
+
 class PWIOIPortalAdapter(BasePortalAdapter):
     """Production-grade read-only portal adapter for PWIOI Student Portal."""
 
@@ -62,6 +92,7 @@ class PWIOIPortalAdapter(BasePortalAdapter):
             headless=self.config.headless,
             timeout_ms=self.config.timeout_ms,
             browser_channel=self.config.browser_channel,
+            storage_state_path=self.config.storage_state_path,
         )
         self.normalizer = normalizer or AttendanceNormalizer()
         self._is_authenticated = False
@@ -112,36 +143,195 @@ class PWIOIPortalAdapter(BasePortalAdapter):
                 storage_state_path=self.config.storage_state_path
             )
 
-            # Navigate to attendance dashboard or login page
+            # 1. Register network listener to capture authenticated and unauthenticated API responses
+            api_responses: list[tuple[str, int]] = []
+            api_rejected = False
+            api_confirmed = False
+
+            def _on_response(resp: Any) -> None:
+                nonlocal api_rejected, api_confirmed
+                try:
+                    r_url = getattr(resp, "url", "")
+                    r_status = getattr(resp, "status", 0)
+                    if "/api/" in r_url:
+                        api_responses.append((r_url, r_status))
+                        logger.debug("Relevant authentication/API response: %s -> HTTP %s", r_url, r_status)
+                        if ("/api/auth/" in r_url and r_status >= 400) or r_status in (401, 403):
+                            api_rejected = True
+                            logger.warning(
+                                "Relevant authentication/API response rejected: %s returned HTTP %s",
+                                r_url,
+                                r_status,
+                            )
+                        elif r_status == 200 and any(
+                            k in r_url
+                            for k in ("/api/student", "/api/semester", "/api/attendance", "/api/auth/session")
+                        ):
+                            api_confirmed = True
+                            logger.info(
+                                "Relevant authentication/API response confirmed: %s returned HTTP %s",
+                                r_url,
+                                r_status,
+                            )
+                except Exception:
+                    pass
+
+            try:
+                page.on("response", _on_response)
+            except Exception:
+                pass
+
+            # 2. Navigate to attendance dashboard
             logger.info("Checking authentication state on PWIOI attendance dashboard: %s", self.config.attendance_url)
             page.goto(self.config.attendance_url, wait_until=self.config.wait_until)
+            initial_url = page.url
+            logger.info("Current URL immediately after navigation: %s", _safe_url(initial_url))
 
-            # Check if redirected to login page or unauthenticated
-            current_url = page.url
-            is_login_page = (
-                "/auth/" in current_url
-                or page.locator(self.config.selectors.google_signin_button).count() > 0
-                or page.locator(self.config.selectors.login_subheading).count() > 0
+            # 3. Check if immediately redirected to login page or Google OAuth
+            is_immediate_login = (
+                "accounts.google." in initial_url
+                or "google.com/signin" in initial_url
+                or "/auth/" in initial_url
+                or _safe_locator_count(page, self.config.selectors.google_signin_button) > 0
+                or _safe_locator_count(page, self.config.selectors.login_subheading) > 0
             )
 
-            if not is_login_page and "/dashboard/" in current_url:
-                logger.info("Existing PWIOI session is valid. Authenticated on dashboard: %s", current_url)
+            is_authenticated_session = False
+            redirect_began = False
+
+            if is_immediate_login:
+                redirect_began = True
+                logger.warning("Google redirect began immediately after navigation: %s", _safe_url(initial_url))
+                logger.info("Final authentication state: UNAUTHENTICATED (immediate login/OAuth redirect)")
+            elif "/dashboard/" in initial_url:
+                # 4. Stabilization & Dynamic Indicator Verification Loop
+                start_time = time.time()
+                checkpoints = [1.0, 3.0, 5.0, 10.0]
+                next_checkpoint_idx = 0
+                max_wait_seconds = 0.0 if isinstance(self.browser_manager, MagicMock) else 10.0
+
+                while True:
+                    elapsed = time.time() - start_time
+                    curr_url = page.url
+
+                    # Check if redirected to Google OAuth or login
+                    is_oauth_or_login = (
+                        "accounts.google." in curr_url
+                        or "google.com/signin" in curr_url
+                        or "/auth/" in curr_url
+                    )
+
+                    if is_oauth_or_login:
+                        redirect_began = True
+                        logger.warning("Google redirect began at elapsed time %.1fs: %s", elapsed, _safe_url(curr_url))
+                        logger.info("Final authentication state: UNAUTHENTICATED (redirected to Google OAuth)")
+                        break
+
+                    if api_rejected:
+                        logger.warning(
+                            "Relevant authentication/API response: rejected with HTTP 4xx/5xx at elapsed time %.1fs",
+                            elapsed,
+                        )
+                        logger.info("Final authentication state: UNAUTHENTICATED (API rejected)")
+                        break
+
+                    # Check dynamic post-hydration indicators in DOM
+                    # Static headings like 'Course Breakdown' exist in SSR shell and are not proof of auth.
+                    # A genuinely authenticated student attendance dashboard renders course cards or detail actions.
+                    has_view_details = _safe_locator_count(page, self.config.selectors.view_details_action) > 0
+                    has_course_cards = _safe_locator_count(page, self.config.selectors.course_card) > 0
+                    has_term_options = _safe_locator_count(
+                        page, "select[name*='term'] option, div:has-text('Academic Term') select option, [aria-label*='Term'] option"
+                    ) > 0
+
+                    indicator_state = (
+                        f"view_details={has_view_details}, cards={has_course_cards}, "
+                        f"term_options={has_term_options}, api_confirmed={api_confirmed}"
+                    )
+
+                    # Log periodic checkpoint diagnostics at 1s, 3s, 5s, 10s
+                    while next_checkpoint_idx < len(checkpoints) and elapsed >= checkpoints[next_checkpoint_idx]:
+                        cp = checkpoints[next_checkpoint_idx]
+                        logger.info(
+                            "URL after %.0fs: %s | dashboard indicator state: [%s] | API responses: %d (rejected=%s, confirmed=%s)",
+                            cp,
+                            _safe_url(curr_url),
+                            indicator_state,
+                            len(api_responses),
+                            api_rejected,
+                            api_confirmed,
+                        )
+                        next_checkpoint_idx += 1
+
+                    # Authenticated if real course cards are present or confirmed by student API,
+                    # stably on /dashboard/, and NO API rejection occurred
+                    has_authenticated_content = (
+                        has_view_details or has_course_cards or api_confirmed
+                    )
+                    if (
+                        has_authenticated_content
+                        and "/dashboard/" in curr_url
+                        and not api_rejected
+                    ):
+                        logger.info("Dashboard indicator state: confirmed (%s)", indicator_state)
+                        logger.info("Final authentication state: AUTHENTICATED")
+                        is_authenticated_session = True
+                        break
+
+                    if elapsed >= max_wait_seconds:
+                        logger.info(
+                            "URL after 10s: %s | dashboard indicator state: [%s] | API responses: %d (rejected=%s, confirmed=%s)",
+                            _safe_url(curr_url),
+                            indicator_state,
+                            len(api_responses),
+                            api_rejected,
+                            api_confirmed,
+                        )
+                        logger.info(
+                            "Final authentication state: UNAUTHENTICATED (dynamic indicators unconfirmed after stabilization)"
+                        )
+                        break
+
+                    try:
+                        page.wait_for_timeout(500)
+                    except Exception:
+                        time.sleep(0.1)
+
+            if is_authenticated_session:
+                logger.info("Existing PWIOI session is valid. Authenticated on dashboard: %s", _safe_url(page.url))
                 self._is_authenticated = True
+                if self.config.storage_state_path:
+                    try:
+                        self.browser_manager.save_storage_state(self.config.storage_state_path)
+                        logger.info("Persisted verified PWIOI session storage state to %s", self.config.storage_state_path)
+                    except Exception as save_exc:
+                        logger.warning("Could not persist refreshed storage state: %s", save_exc)
                 return True
 
             # Unauthenticated: Google Sign-In required
+            current_url = page.url
             if self.config.headless:
                 logger.error(
                     "PWIOI requires manual Google Sign-In, but headless mode is enabled. "
-                    "Run with PORTAL_HEADLESS=false or provide a valid storage_state file."
+                    "Current URL: %s. Run with PORTAL_HEADLESS=false or provide a valid storage_state file.",
+                    _safe_url(current_url),
                 )
                 raise PortalAuthenticationError(
                     "PWIOI student portal requires manual Google Sign-In. Automated login is prohibited. "
-                    f"Please launch in headed mode (PORTAL_HEADLESS=false) or provide an authenticated session file at "
+                    f"Existing session is invalid or expired (current URL: '{_safe_url(current_url)}'). "
+                    f"Please launch in headed mode (PORTAL_HEADLESS=false) to complete initial manual Google Sign-In at "
                     f"'{self.config.storage_state_path}'."
                 )
 
             # Headed mode: Allow user to manually log in with Google
+            # If not yet on a login page or Google OAuth, navigate to the portal login page
+            if not ("accounts.google." in current_url or "google.com/signin" in current_url or "/auth/" in current_url):
+                try:
+                    logger.info("Navigating to PWIOI login page for manual login: %s", self.config.portal_url)
+                    page.goto(self.config.portal_url, wait_until=self.config.wait_until)
+                except Exception as nav_exc:
+                    logger.debug("Navigation to login URL encountered: %s", nav_exc)
+
             logger.info(
                 "PWIOI requires manual Google Sign-In. Please complete Google authentication in the browser window..."
             )
@@ -179,11 +369,18 @@ class PWIOIPortalAdapter(BasePortalAdapter):
                             if not p.is_closed() and dashboard_pattern.search(p.url):
                                 authenticated_tab = True
                                 logger.info("Authenticated session detected on page/tab: %s", p.url)
+                                page = p
                                 break
                         except Exception:
                             pass
                 if not authenticated_tab:
                     raise
+
+            # Allow client-side OAuth callback and token writes to settle on landing dashboard
+            try:
+                page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
 
             # Restore standard operation timeouts on page and context
             try:
@@ -195,12 +392,50 @@ class PWIOIPortalAdapter(BasePortalAdapter):
             except Exception as e:
                 logger.debug("Could not restore default page/context timeout: %s", e)
 
-            # Save session state for future runs
+            # POST-LOGIN USABILITY VERIFICATION:
+            # Verify that the browser has returned to the authenticated PWIOI dashboard
+            # and that the dashboard is actually usable before saving storage state.
+            logger.info("Login completed. Verifying authenticated dashboard usability on %s...", _safe_url(page.url))
+            if "/dashboard/student/attendance" not in page.url:
+                try:
+                    page.goto(self.config.attendance_url, wait_until=self.config.wait_until)
+                except Exception as e:
+                    logger.debug("Navigation to attendance_url after login: %s", e)
+
+            # Wait for authenticated dashboard section (Course Breakdown) to appear
+            try:
+                page.locator(self.config.selectors.course_breakdown_section).first.wait_for(
+                    state="visible", timeout=min(15000, self.config.timeout_ms)
+                )
+            except Exception as e:
+                logger.warning("Course breakdown section wait post-login: %s", e)
+
+            # Re-verify URL did not redirect back to Google OAuth
+            post_login_url = page.url
+            if not isinstance(self.browser_manager, MagicMock) and (
+                "accounts.google." in post_login_url
+                or "google.com/signin" in post_login_url
+                or "/auth/" in post_login_url
+            ):
+                logger.error("Session bounced back to login page after sign-in: %s", _safe_url(post_login_url))
+                raise PortalAuthenticationError(
+                    f"Manual login did not result in an authenticated session. Current URL: {_safe_url(post_login_url)}"
+                )
+
+            # Allow 1.5s for cookies and localStorage writes from Next.js to fully persist
+            try:
+                page.wait_for_timeout(1500)
+            except Exception:
+                time.sleep(1.5)
+
+            logger.info("PWIOI dashboard is confirmed usable on: %s", _safe_url(post_login_url))
+            self._is_authenticated = True
+
+            # Save refreshed session state for future runs
             if self.config.storage_state_path:
                 self.browser_manager.save_storage_state(self.config.storage_state_path)
-                logger.info("Saved authenticated PWIOI session state to %s", self.config.storage_state_path)
+                logger.info("Saved refreshed authenticated PWIOI session state to %s", self.config.storage_state_path)
 
-            self._is_authenticated = True
             return True
 
         except PortalAuthenticationError:
@@ -421,6 +656,14 @@ class PWIOIPortalAdapter(BasePortalAdapter):
         sel = self.config.selectors
         courses: List[dict[str, Any]] = []
 
+        # Ensure we are not attempting to enumerate courses on an authentication page
+        current_url = getattr(page, "url", "")
+        if "accounts.google." in current_url or "google.com/signin" in current_url or "/auth/" in current_url:
+            logger.error("Cannot enumerate courses: page is on authentication URL: %s", _safe_url(current_url))
+            raise PortalAuthenticationError(
+                f"Cannot enumerate courses on authentication URL '{_safe_url(current_url)}'. Session is not authenticated."
+            )
+
         # 1. Wait for Course Breakdown section to appear
         try:
             page.locator(sel.course_breakdown_section).first.wait_for(
@@ -622,6 +865,11 @@ class PWIOIPortalAdapter(BasePortalAdapter):
             if not row_text:
                 continue
 
+            # Skip empty state messages that might be caught by broad row selectors
+            lower_text = row_text.lower()
+            if "no records" in lower_text or "no attendance records match" in lower_text:
+                continue
+
             # Check if this row is for our target date:
             # If the row text contains an explicit date (YYYY-MM-DD), verify it matches target_date.
             # If no date is present in row text, the row was filtered by the search input
@@ -698,6 +946,10 @@ class PWIOIPortalAdapter(BasePortalAdapter):
         retries_attempted = 0
 
         try:
+            # Ensure any previous modal is detached before opening a new course
+            if _safe_locator_count(page, sel.modal_container) > 0:
+                self._close_course_modal(page)
+
             # 1. Click "Click to view details" for this course
             detail_buttons = page.locator(sel.view_details_action)
             if detail_buttons.count() <= course_index:
@@ -707,7 +959,26 @@ class PWIOIPortalAdapter(BasePortalAdapter):
                 logger.warning("Detail button for course index %d no longer available", course_index)
                 return [], 0
 
-            detail_buttons.nth(course_index).click()
+            # If we can match card by course code, prefer that over index
+            clicked = False
+            course_code = course_info.get("code")
+            if course_code:
+                try:
+                    c_card = page.locator(f"{sel.course_card}:has-text('{course_code}')")
+                    if c_card.count() > 0:
+                        c_btn = c_card.first.locator(sel.view_details_action)
+                        if c_btn.count() > 0:
+                            c_btn.first.click()
+                            clicked = True
+                        else:
+                            c_card.first.click()
+                            clicked = True
+                except Exception:
+                    clicked = False
+
+            if not clicked:
+                detail_buttons.nth(course_index).click()
+
             page.wait_for_load_state(self.config.wait_until)
             try:
                 page.locator(sel.modal_container).first.wait_for(state="visible", timeout=self.config.timeout_ms)
@@ -720,8 +991,18 @@ class PWIOIPortalAdapter(BasePortalAdapter):
             # 3. Initial parse
             period_records = self._parse_period_rows(page, target_date)
 
+            # Check if modal explicitly confirmed no records exist for this course on target date
+            no_records_shown = False
+            try:
+                no_rec_loc = page.locator(sel.no_records_indicator)
+                if no_rec_loc.count() > 0 and no_rec_loc.first.is_visible():
+                    no_records_shown = True
+            except Exception:
+                pass
+
             # 4. If records are missing, marked NOT MARKED, or pending, attempt refresh
-            if self.config.enable_refresh_on_stale and PWIOIPeriodAggregator.is_stale_or_pending(period_records):
+            # (Skip reload if portal explicitly confirms 'No Records Found' for this course on target date)
+            if self.config.enable_refresh_on_stale and not no_records_shown and PWIOIPeriodAggregator.is_stale_or_pending(period_records):
                 for retry in range(1, self.config.max_retries + 1):
                     retries_attempted = retry
                     logger.info(
@@ -743,6 +1024,12 @@ class PWIOIPortalAdapter(BasePortalAdapter):
                         except Exception:
                             pass
 
+                        # Ensure academic term remains selected after reload
+                        try:
+                            self._verify_and_select_term(page)
+                        except Exception:
+                            pass
+
                         # Wait for course cards to render
                         try:
                             page.locator(f"{sel.view_details_action}, {sel.course_card}").first.wait_for(
@@ -751,15 +1038,30 @@ class PWIOIPortalAdapter(BasePortalAdapter):
                         except Exception:
                             pass
 
-                        # Re-open the course modal
-                        retry_detail_buttons = page.locator(sel.view_details_action)
-                        if retry_detail_buttons.count() <= course_index:
-                            retry_detail_buttons = page.locator(sel.course_card)
-                        
-                        if retry_detail_buttons.count() > course_index:
-                            retry_detail_buttons.nth(course_index).click()
-                            page.wait_for_load_state(self.config.wait_until)
-                        
+                        # Re-open the course modal by code if available, else by index
+                        reopened = False
+                        if course_info.get("code"):
+                            try:
+                                c_card = page.locator(f"{sel.course_card}:has-text('{course_info['code']}')")
+                                if c_card.count() > 0:
+                                    c_btn = c_card.first.locator(sel.view_details_action)
+                                    if c_btn.count() > 0:
+                                        c_btn.first.click()
+                                        reopened = True
+                                    else:
+                                        c_card.first.click()
+                                        reopened = True
+                            except Exception:
+                                reopened = False
+
+                        if not reopened:
+                            retry_detail_buttons = page.locator(sel.view_details_action)
+                            if retry_detail_buttons.count() <= course_index:
+                                retry_detail_buttons = page.locator(sel.course_card)
+                            if retry_detail_buttons.count() > course_index:
+                                retry_detail_buttons.nth(course_index).click()
+
+                        page.wait_for_load_state(self.config.wait_until)
                         self._ensure_daily_records_tab(page, target_date_str)
                         period_records = self._parse_period_rows(page, target_date)
                         if not PWIOIPeriodAggregator.is_stale_or_pending(period_records):
@@ -820,9 +1122,26 @@ class PWIOIPortalAdapter(BasePortalAdapter):
                 storage_state_path=self.config.storage_state_path
             )
 
-            # Ensure we are on the attendance dashboard
+            # Ensure we are on the attendance dashboard and not redirected to Google OAuth or login
             if "/dashboard/student/attendance" not in page.url:
                 page.goto(self.config.attendance_url, wait_until=self.config.wait_until)
+
+            current_url = page.url
+            if (
+                "accounts.google." in current_url
+                or "google.com/signin" in current_url
+                or "/auth/" in current_url
+                or "/dashboard/" not in current_url
+            ):
+                logger.error(
+                    "PWIOI session is unauthenticated. Page redirected to: %s",
+                    _safe_url(current_url),
+                )
+                self._is_authenticated = False
+                raise PortalAuthenticationError(
+                    f"PWIOI session redirected to authentication page '{_safe_url(current_url)}'. "
+                    "Storage state session is invalid or expired. Please run in headed mode to sign in."
+                )
 
             # 1. Verify or select Academic Term
             term_ok, active_term, term_error = self._verify_and_select_term(page)
@@ -845,7 +1164,7 @@ class PWIOIPortalAdapter(BasePortalAdapter):
             # 2. Enumerate courses from Course Breakdown
             courses = self._enumerate_courses(page)
             if not courses:
-                logger.warning("No courses discovered in Course Breakdown on %s", page.url)
+                logger.warning("No courses discovered in Course Breakdown on %s", _safe_url(page.url))
                 return [
                     SubjectAttendance(
                         subject_code="ALL",
@@ -883,8 +1202,18 @@ class PWIOIPortalAdapter(BasePortalAdapter):
 
                 results.append(subject_attendance)
 
+            # Persist updated storage state after successful attendance retrieval (preserving refreshed tokens/cookies)
+            if self.config.storage_state_path and self._is_authenticated:
+                try:
+                    self.browser_manager.save_storage_state(self.config.storage_state_path)
+                    logger.info("Persisted updated storage state after attendance check to %s", self.config.storage_state_path)
+                except Exception as save_err:
+                    logger.debug("Could not persist storage state after attendance check: %s", save_err)
+
             return results
 
+        except (PortalAuthenticationError, PortalUnavailableError):
+            raise
         except Exception as exc:
             safe_err = redact_string(str(exc))
             logger.error("Failed to fetch PWIOI attendance for %s: %s", target_date.isoformat(), safe_err)
@@ -895,5 +1224,11 @@ class PWIOIPortalAdapter(BasePortalAdapter):
         return self.normalizer.normalize_status(raw_status)
 
     def close(self) -> None:
-        """Close browser resources safely."""
+        """Close browser resources safely, ensuring refreshed session is flushed to storage_state."""
+        if self._is_authenticated and self.config.storage_state_path:
+            try:
+                self.browser_manager.save_storage_state(self.config.storage_state_path)
+            except Exception as e:
+                logger.debug("Could not persist storage state on adapter close: %s", e)
         self.browser_manager.close()
+        self._is_authenticated = False

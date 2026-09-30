@@ -50,16 +50,19 @@ class TestPWIOIPortalAdapter:
             bad_adapter.validate_config()
 
     def test_authenticate_existing_session_valid(self):
-        """When dashboard URL is active and no login button is visible, session is valid."""
+        """When dashboard URL is active and dynamic authenticated indicator is present, session is valid."""
         cfg = PWIOIPortalConfig()
         mock_bm = MagicMock(spec=PlaywrightBrowserManager)
         mock_page = MagicMock()
         mock_page.url = "https://app.pwioi.club/dashboard/student/attendance"
 
-        # Mock absence of login indicators
+        # Mock absence of login indicators and presence of dynamic course card indicator
         def locator_mock(selector):
             loc = MagicMock()
-            loc.count.return_value = 0
+            if "details" in selector or "course" in selector:
+                loc.count.return_value = 1
+            else:
+                loc.count.return_value = 0
             return loc
 
         mock_page.locator.side_effect = locator_mock
@@ -68,6 +71,7 @@ class TestPWIOIPortalAdapter:
         adapter = PWIOIPortalAdapter(config=cfg, browser_manager=mock_bm)
         assert adapter.authenticate() is True
         assert adapter._is_authenticated is True
+        mock_bm.save_storage_state.assert_called_once_with(cfg.storage_state_path)
 
     def test_authenticate_unauthenticated_headless_raises_error(self):
         """If user is not logged in and headless=True, fail closed with informative error."""
@@ -181,6 +185,122 @@ class TestPWIOIPortalAdapter:
         with pytest.raises(PortalUnavailableError, match="Could not reach or authenticate"):
             adapter.authenticate()
 
+    def test_authenticate_redirect_to_google_oauth_in_headless_raises_error(self):
+        """When headless and page redirects to Google Accounts OAuth, fail closed with PortalAuthenticationError."""
+        cfg = PWIOIPortalConfig(headless=True)
+        mock_bm = MagicMock(spec=PlaywrightBrowserManager)
+        mock_page = MagicMock()
+        mock_page.url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=123"
+
+        mock_bm.get_page.return_value = mock_page
+        adapter = PWIOIPortalAdapter(config=cfg, browser_manager=mock_bm)
+
+        with pytest.raises(PortalAuthenticationError, match="manual Google Sign-In"):
+            adapter.authenticate()
+
+    def test_authenticate_redirect_to_google_oauth_in_headed_triggers_manual_login(self):
+        """When headed and page redirects to Google OAuth, adapter waits for user to sign in up to 5 minutes."""
+        cfg = PWIOIPortalConfig(headless=False, storage_state_path="storage_state/test_pwioi.json")
+        mock_bm = MagicMock(spec=PlaywrightBrowserManager)
+        mock_page = MagicMock()
+        mock_page.url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=123"
+
+        mock_bm.get_page.return_value = mock_page
+        adapter = PWIOIPortalAdapter(config=cfg, browser_manager=mock_bm)
+
+        assert adapter.authenticate() is True
+        assert adapter._is_authenticated is True
+        mock_page.wait_for_url.assert_called_once()
+        args, kwargs = mock_page.wait_for_url.call_args
+        assert kwargs.get("timeout") == 300000
+        mock_bm.save_storage_state.assert_called_once_with("storage_state/test_pwioi.json")
+
+    def test_authenticate_dashboard_indicator_missing_fails_closed_in_headless(self):
+        """When headless and dashboard indicator never renders (blank/broken page), fail closed."""
+        cfg = PWIOIPortalConfig(headless=True)
+        mock_bm = MagicMock(spec=PlaywrightBrowserManager)
+        mock_page = MagicMock()
+        mock_page.url = "https://app.pwioi.club/dashboard/student/attendance"
+
+        # Mock wait_for on dashboard indicator timing out
+        mock_loc = MagicMock()
+        mock_loc.first.wait_for.side_effect = Exception("Timeout waiting for indicator")
+        mock_loc.count.return_value = 0
+        mock_page.locator.return_value = mock_loc
+
+        mock_bm.get_page.return_value = mock_page
+        adapter = PWIOIPortalAdapter(config=cfg, browser_manager=mock_bm)
+
+        with pytest.raises(PortalAuthenticationError, match="manual Google Sign-In"):
+            adapter.authenticate()
+
+    def test_get_attendance_for_date_redirected_to_google_oauth_raises_authentication_error(self):
+        """If get_attendance_for_date finds itself on Google Accounts, raises PortalAuthenticationError."""
+        cfg = PWIOIPortalConfig()
+        mock_bm = MagicMock(spec=PlaywrightBrowserManager)
+        mock_page = MagicMock()
+        mock_page.url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=123"
+
+        mock_bm.get_page.return_value = mock_page
+        adapter = PWIOIPortalAdapter(config=cfg, browser_manager=mock_bm)
+        adapter._is_authenticated = True
+
+        with pytest.raises(PortalAuthenticationError, match="PWIOI session redirected to authentication page"):
+            adapter.get_attendance_for_date(self.TARGET_DATE)
+
+    def test_enumerate_courses_on_google_oauth_raises_authentication_error(self):
+        """If _enumerate_courses is invoked while on Google OAuth URL, raises PortalAuthenticationError."""
+        cfg = PWIOIPortalConfig()
+        adapter = PWIOIPortalAdapter(config=cfg)
+
+        mock_page = MagicMock()
+        mock_page.url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=123"
+
+        with pytest.raises(PortalAuthenticationError, match="Cannot enumerate courses on authentication URL"):
+            adapter._enumerate_courses(mock_page)
+
+    def test_authenticate_api_rejected_with_401_fails_closed_in_headless(self):
+        """When an API endpoint returns 401, headless mode fails closed with PortalAuthenticationError."""
+        cfg = PWIOIPortalConfig(headless=True)
+        mock_bm = MagicMock(spec=PlaywrightBrowserManager)
+        mock_page = MagicMock()
+        mock_page.url = "https://app.pwioi.club/dashboard/student/attendance"
+
+        # Simulate API listener receiving 401
+        def fake_on(event, handler):
+            if event == "response":
+                mock_resp = MagicMock()
+                mock_resp.url = "https://app.pwioi.club/api/student/profile"
+                mock_resp.status = 401
+                handler(mock_resp)
+
+        mock_page.on.side_effect = fake_on
+        mock_bm.get_page.return_value = mock_page
+        adapter = PWIOIPortalAdapter(config=cfg, browser_manager=mock_bm)
+
+        with pytest.raises(PortalAuthenticationError, match="manual Google Sign-In"):
+            adapter.authenticate()
+
+    def test_authenticate_api_confirmed_with_200_succeeds(self):
+        """When a student API returns 200 OK, session is confirmed valid."""
+        cfg = PWIOIPortalConfig()
+        mock_bm = MagicMock(spec=PlaywrightBrowserManager)
+        mock_page = MagicMock()
+        mock_page.url = "https://app.pwioi.club/dashboard/student/attendance"
+
+        def fake_on(event, handler):
+            if event == "response":
+                mock_resp = MagicMock()
+                mock_resp.url = "https://app.pwioi.club/api/student/attendance"
+                mock_resp.status = 200
+                handler(mock_resp)
+
+        mock_page.on.side_effect = fake_on
+        mock_bm.get_page.return_value = mock_page
+        adapter = PWIOIPortalAdapter(config=cfg, browser_manager=mock_bm)
+
+        assert adapter.authenticate() is True
+        assert adapter._is_authenticated is True
 
     def test_verify_and_select_term_select_matches(self):
         """Academic Term configured as '3' matches native select."""
@@ -598,6 +718,7 @@ class TestPWIOIPortalAdapter:
 
         records = adapter.get_attendance_for_date(self.TARGET_DATE)
         assert len(records) == 2
+        mock_bm.save_storage_state.assert_called_with(cfg.storage_state_path)
 
         # 302OPS: all PRESENT -> PRESENT, reliable=True
         assert records[0].subject_code == "302OPS"
@@ -637,6 +758,17 @@ class TestPWIOIPortalAdapter:
         adapter = PWIOIPortalAdapter(browser_manager=mock_bm)
         adapter.close()
         mock_bm.close.assert_called_once()
+
+    def test_close_persists_storage_state_when_authenticated(self):
+        """close() flushes storage state if session was authenticated before tearing down context."""
+        cfg = PWIOIPortalConfig(storage_state_path="storage_state/test_close.json")
+        mock_bm = MagicMock(spec=PlaywrightBrowserManager)
+        adapter = PWIOIPortalAdapter(config=cfg, browser_manager=mock_bm)
+        adapter._is_authenticated = True
+        adapter.close()
+        mock_bm.save_storage_state.assert_called_once_with("storage_state/test_close.json")
+        mock_bm.close.assert_called_once()
+        assert adapter._is_authenticated is False
 
 
 class TestPWIOIRefreshAndStaleAttendance:

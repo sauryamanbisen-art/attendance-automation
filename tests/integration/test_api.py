@@ -147,17 +147,33 @@ def test_settings_api_safety(client: TestClient) -> None:
     assert "gmail_client_secret" not in settings
     assert "google_chat_token_file" not in settings
 
-def test_settings_session_api(client: TestClient) -> None:
-    """Verify session management API safely reports status and handles deletion."""
+def test_settings_session_api(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Verify session management API safely reports status and handles deletion without touching real files."""
+    test_session_file = tmp_path / "mock_session.json"
+    test_session_file.write_text("{}", encoding="utf-8")
+
+    from app.config import get_settings
+    current_settings = get_settings()
+    monkeypatch.setattr(current_settings, "pwioi_storage_state", str(test_session_file))
+    monkeypatch.setattr(current_settings, "portal_storage_state", str(test_session_file))
+
     res = client.get("/api/settings/session")
     assert res.status_code == 200
     data = res.json()
-    assert "is_authenticated" in data
-    assert "session_file_exists" in data
-    
-    # Test safe deletion (even if it doesn't exist, it should return 204 safely)
+    assert data["is_authenticated"] is True
+    assert data["session_file_exists"] is True
+
+    # Test safe deletion
     res_del = client.delete("/api/settings/session")
     assert res_del.status_code == 204
+    assert not test_session_file.exists()
+
+    # Status after deletion
+    res_after = client.get("/api/settings/session")
+    assert res_after.status_code == 200
+    data_after = res_after.json()
+    assert data_after["is_authenticated"] is False
+    assert data_after["session_file_exists"] is False
 
 def test_notifications_providers_api(client: TestClient) -> None:
     """Verify notification providers endpoint safely reports connection status."""

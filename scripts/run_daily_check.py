@@ -159,6 +159,10 @@ def main(args: Optional[list[str]] = None) -> int:
         logger.info("Daily attendance check completed with status: %s", result.status)
         return 0
     except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         logger.exception("Unexpected error during daily attendance check: %s", exc)
         return 1
     finally:

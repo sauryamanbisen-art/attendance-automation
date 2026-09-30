@@ -209,7 +209,7 @@ class DailyCheckRunner:
             status=CheckStatus.SUCCESS,
         )
         self.db.add(check_record)
-        self.db.flush()
+        self.db.commit()
 
         records: List[SubjectAttendance] = []
         try:
@@ -221,10 +221,16 @@ class DailyCheckRunner:
             safe_err = redact_string(str(exc))
             logger.error("Portal adapter execution failed for %s: %s", adapter_name_resolved, safe_err)
 
-            check_record.status = CheckStatus.FAILED
-            check_record.error_message = safe_err
-            self.db.add(check_record)
-            self.db.commit()
+            existing_check = self.db.query(AttendanceCheck).filter(AttendanceCheck.run_id == run_id).first()
+            if existing_check:
+                existing_check.status = CheckStatus.FAILED
+                existing_check.error_message = safe_err
+                self.db.commit()
+            else:
+                check_record.status = CheckStatus.FAILED
+                check_record.error_message = safe_err
+                self.db.add(check_record)
+                self.db.commit()
 
             self.audit_service.log(
                 event_type=AuditEventType.ATTENDANCE_CHECK,

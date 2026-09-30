@@ -47,7 +47,7 @@ class PWIOISelectors:
     daily_records_tab: str = "button:has-text('Daily Records'), a:has-text('Daily Records'), [role='tab']:has-text('Daily Records')"
     daily_records_section: str = ":has-text('Daily Records')"
     search_date_input: str = "input[placeholder*='date' i], input[placeholder='Search by date...'], input[type='search'], input[placeholder*='Search' i]"
-    record_row: str = ".fixed.inset-0 .space-y-3 > div, div[role='dialog'] .space-y-3 > div, .space-y-3 > div.bg-white.rounded-sm.border, div.bg-white.rounded-sm.border:has(p.font-semibold), table tbody tr"
+    record_row: str = "div.bg-white.rounded-sm.border:has(p.font-semibold), div.rounded-sm.border:has(p.font-semibold), .space-y-3 > div.bg-white:has(p.font-semibold), div[role='dialog'] .space-y-3 > div.bg-white, .fixed.inset-0 .space-y-3 > div.bg-white, .fixed.inset-0 .space-y-3 > div, div[role='dialog'] .space-y-3 > div, table tbody tr"
     no_records_indicator: str = ":has-text('No Records Found'), :has-text('No attendance records match')"
     back_button: str = "button:has-text('Back'), a:has-text('Back'), button[aria-label*='back' i], .fixed.inset-0 button:has(svg)"
 

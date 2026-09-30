@@ -2,6 +2,7 @@
 
 import sqlite3
 from collections.abc import Generator
+from typing import Any
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
@@ -13,9 +14,10 @@ from app.database.base import Base
 settings = get_settings()
 
 # Connect args specific to SQLite
-connect_args: dict[str, bool] = {}
+connect_args: dict[str, Any] = {}
 if settings.database_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    connect_args["timeout"] = 30.0
 
 engine = create_engine(
     settings.database_url,
@@ -26,10 +28,16 @@ engine = create_engine(
 
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection: object, connection_record: object) -> None:
-    """Enforce SQLite foreign key constraints."""
+    """Enforce SQLite foreign key constraints, WAL journal mode, and busy timeout."""
     if isinstance(dbapi_connection, sqlite3.Connection):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            pass
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 
 

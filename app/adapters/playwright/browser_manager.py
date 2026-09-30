@@ -7,9 +7,11 @@ Safety Invariants:
 - Reliable cleanup of browser, context, and Playwright instances.
 """
 
+import json
 import logging
 import os
 import stat
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -25,14 +27,17 @@ class PlaywrightBrowserManager:
         playwright_instance: Optional[Any] = None,
         browser_instance: Optional[Any] = None,
         browser_channel: Optional[str] = None,
+        storage_state_path: Optional[str] = None,
     ) -> None:
         self.headless = headless
         self.timeout_ms = timeout_ms
         self.browser_channel = browser_channel
+        self.storage_state_path = storage_state_path
         self._playwright = playwright_instance
         self._browser = browser_instance
         self._context: Optional[Any] = None
         self._page: Optional[Any] = None
+        self._pending_session_storage: Optional[dict[str, Any]] = None
         self._is_external_playwright = playwright_instance is not None
 
     def _ensure_browser(self) -> Any:
@@ -70,13 +75,22 @@ class PlaywrightBrowserManager:
             ),
         }
 
+        effective_storage_path = storage_state_path or self.storage_state_path
         # If a saved session file exists and is readable, restore it
-        if storage_state_path and os.path.exists(storage_state_path):
+        if effective_storage_path and os.path.exists(effective_storage_path):
             try:
-                context_options["storage_state"] = storage_state_path
-                logger.info("Restoring saved browser session state from %s", storage_state_path)
+                context_options["storage_state"] = effective_storage_path
+                logger.info("Restoring saved browser session state from %s (loaded=True)", effective_storage_path)
+                try:
+                    with open(effective_storage_path, "r", encoding="utf-8") as f:
+                        saved_data = json.load(f)
+                        self._pending_session_storage = saved_data.get("sessionStorage", {})
+                except Exception as read_exc:
+                    logger.debug("Could not read custom storage keys from %s: %s", effective_storage_path, read_exc)
             except Exception as exc:
-                logger.warning("Could not load storage state from %s: %s", storage_state_path, exc)
+                logger.warning("Could not load storage state from %s: %s", effective_storage_path, exc)
+        else:
+            logger.info("No existing storage state file found at %s (loaded=False). Starting fresh session.", effective_storage_path)
 
         self._context = browser.new_context(**context_options)
         self._context.set_default_timeout(self.timeout_ms)
@@ -90,29 +104,72 @@ class PlaywrightBrowserManager:
 
         context = self.get_context(storage_state_path=storage_state_path)
         self._page = context.new_page()
+
+        if self._pending_session_storage:
+            try:
+                storage_json = json.dumps(self._pending_session_storage)
+                init_script = (
+                    "(() => {"
+                    f"  try {{ const data = {storage_json};"
+                    "    for (const [k, v] of Object.entries(data)) {"
+                    "      if (sessionStorage.getItem(k) === null) { sessionStorage.setItem(k, v); }"
+                    "    }"
+                    "  } catch (e) {}"
+                    "})();"
+                )
+                self._page.add_init_script(init_script)
+            except Exception as exc:
+                logger.debug("Could not register sessionStorage init script: %s", exc)
+
         return self._page
 
-    def save_storage_state(self, path: str) -> None:
-        """Persist current session cookies and localStorage to local file with 0600 permissions."""
-        if self._context is None:
+    def save_storage_state(self, path: Optional[str] = None) -> None:
+        """Persist current session cookies, localStorage, and sessionStorage with 0600 permissions."""
+        effective_path = path or self.storage_state_path
+        if not effective_path or self._context is None:
             return
 
-        abs_path = os.path.abspath(path)
+        abs_path = os.path.abspath(effective_path)
         parent_dir = os.path.dirname(abs_path)
         if parent_dir:
             os.makedirs(parent_dir, exist_ok=True)
 
         temp_path = f"{abs_path}.tmp"
-        self._context.storage_state(path=temp_path)
-
-        # Set 0600 permissions (user read/write only)
         try:
-            os.chmod(temp_path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
+            self._context.storage_state(path=temp_path)
 
-        os.replace(temp_path, abs_path)
-        logger.info("Saved browser session storage state to %s", abs_path)
+            # Capture sessionStorage from active page if available
+            if self._page is not None and not self._page.is_closed():
+                try:
+                    session_storage = self._page.evaluate(
+                        "() => { const s = {}; for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); s[k] = sessionStorage.getItem(k); } return s; }"
+                    )
+                    if session_storage and os.path.exists(temp_path):
+                        with open(temp_path, "r+", encoding="utf-8") as f:
+                            data = json.load(f)
+                            data["sessionStorage"] = session_storage
+                            f.seek(0)
+                            json.dump(data, f, indent=2)
+                            f.truncate()
+                except Exception as ss_exc:
+                    logger.debug("Could not capture sessionStorage: %s", ss_exc)
+
+            # Set 0600 permissions (user read/write only)
+            try:
+                os.chmod(temp_path, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:
+                pass
+
+            os.replace(temp_path, abs_path)
+            persist_time = datetime.now(timezone.utc).isoformat()
+            logger.info("Saved refreshed browser session storage state to %s (timestamp=%s, persisted=True)", abs_path, persist_time)
+        except Exception as exc:
+            logger.error("Failed to save storage state to %s: %s", abs_path, exc)
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
 
     def close(self) -> None:
         """Reliably close page, context, browser, and stop Playwright."""
