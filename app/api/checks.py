@@ -1,0 +1,247 @@
+"""Attendance check execution and decision evaluation endpoints."""
+
+import uuid
+from datetime import date, datetime, timezone
+from typing import List
+
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from app.adapters import get_portal_adapter
+from app.adapters.fake.adapter import FakeScenario
+from app.api.schemas import CheckRunRequest, CheckRunResponse, DecisionItem, SubjectResultItem
+from app.config import get_settings
+from app.core.enums import AuditEventType, CheckStatus
+from app.database import get_db
+from app.models.attendance_check import AttendanceCheck
+from app.models.attendance_result import AttendanceResult
+from app.models.subject import Subject
+from app.security.redaction import redact_string
+from app.services.audit import AuditService
+from app.services.decision_engine import DecisionEngine
+
+router = APIRouter(prefix="/checks", tags=["Attendance Checks"])
+
+
+@router.post("/run", response_model=CheckRunResponse)
+def run_attendance_check(
+    payload: CheckRunRequest = CheckRunRequest(),
+    db: Session = Depends(get_db),
+) -> CheckRunResponse:
+    """Execute an attendance check against the configured portal adapter and evaluate decisions."""
+    settings = get_settings()
+    audit_service = AuditService(db)
+    decision_engine = DecisionEngine()
+
+    target_date = payload.date or date.today()
+    run_id = str(uuid.uuid4())
+
+    # Instantiate adapter via factory (respects scenario override or configured adapter)
+    adapter = get_portal_adapter(
+        settings=settings,
+        scenario=payload.scenario,
+    )
+    adapter_name = adapter.adapter_name
+
+    check_record = AttendanceCheck(
+        run_id=run_id,
+        check_date=target_date,
+        checked_at=datetime.now(timezone.utc),
+        adapter_name=adapter_name,
+        status=CheckStatus.SUCCESS,
+        error_message=None,
+    )
+    db.add(check_record)
+    db.flush()
+
+    results_items: List[SubjectResultItem] = []
+    decision_items: List[DecisionItem] = []
+
+    try:
+        adapter.validate_config()
+        adapter.authenticate()
+        records = adapter.get_attendance_for_date(target_date)
+
+        for rec in records:
+            # Find or link subject if exists
+            subject = db.query(Subject).filter(Subject.code == rec.subject_code).first()
+            subject_id = subject.id if subject else None
+
+            res_record = AttendanceResult(
+                check_id=check_record.id,
+                subject_id=subject_id,
+                subject_code=rec.subject_code,
+                status=rec.status,
+                raw_status=rec.raw_status,
+                is_reliable=rec.is_reliable,
+                notes=str(rec.metadata) if rec.metadata else None,
+            )
+            db.add(res_record)
+            results_items.append(
+                SubjectResultItem(
+                    subject_code=rec.subject_code,
+                    status=rec.status,
+                    raw_status=rec.raw_status,
+                    is_reliable=rec.is_reliable,
+                )
+            )
+
+            # Evaluate decision engine safety rules
+            dec = decision_engine.evaluate_subject_record(
+                db=db,
+                target_date=target_date,
+                subject_code=rec.subject_code,
+                status=rec.status,
+                is_reliable=rec.is_reliable,
+            )
+            decision_items.append(
+                DecisionItem(
+                    action=dec.action,
+                    reason=dec.reason,
+                    subject_code=dec.subject_code,
+                    target_date=dec.target_date,
+                    is_confirmed=dec.is_confirmed,
+                    status=dec.status,
+                    is_reliable=dec.is_reliable,
+                    professor_email=dec.professor_email,
+                )
+            )
+
+        db.commit()
+
+        # Audit log the check execution
+        audit_service.log(
+            event_type=AuditEventType.ATTENDANCE_CHECK,
+            action="RUN_ATTENDANCE_CHECK",
+            entity_type="attendance_checks",
+            run_id=run_id,
+            entity_id=str(check_record.id),
+            details={
+                "date": target_date.isoformat(),
+                "adapter": adapter_name,
+                "subjects_checked": len(records),
+                "decisions": [
+                    {
+                        "code": d.subject_code,
+                        "action": d.action,
+                        "reason": d.reason,
+                        "status": d.status,
+                        "is_reliable": d.is_reliable,
+                    }
+                    for d in decision_items
+                ],
+            },
+        )
+
+        return CheckRunResponse(
+            run_id=run_id,
+            check_date=target_date,
+            adapter_name=adapter_name,
+            status=CheckStatus.SUCCESS,
+            results=results_items,
+            decisions=decision_items,
+        )
+
+    except Exception as exc:
+        db.rollback()
+        safe_error = redact_string(str(exc))
+        check_record.status = CheckStatus.FAILED
+        check_record.error_message = safe_error
+        db.add(check_record)
+        db.commit()
+
+        audit_service.log(
+            event_type=AuditEventType.ATTENDANCE_CHECK,
+            action="CHECK_FAILED",
+            entity_type="attendance_checks",
+            run_id=run_id,
+            entity_id=str(check_record.id),
+            details={"error": safe_error, "date": target_date.isoformat()},
+        )
+
+        return CheckRunResponse(
+            run_id=run_id,
+            check_date=target_date,
+            adapter_name=adapter_name,
+            status=CheckStatus.FAILED,
+            results=[],
+            decisions=[],
+            error_message=safe_error,
+        )
+    finally:
+        adapter.close()
+
+
+@router.get("/latest")
+def get_latest_check(db: Session = Depends(get_db)):
+    """Retrieve the most recent attendance check run and its subject results."""
+    check = (
+        db.query(AttendanceCheck)
+        .order_by(AttendanceCheck.checked_at.desc())
+        .first()
+    )
+    if not check:
+        return {"check": None}
+
+    results = []
+    for r in check.results:
+        subject_name = r.subject.name if r.subject else r.subject_code
+        prof_name = (
+            r.subject.professor_mapping.professor_name
+            if r.subject and r.subject.professor_mapping
+            else None
+        )
+        results.append({
+            "subject_code": r.subject_code,
+            "subject_name": subject_name,
+            "professor_name": prof_name,
+            "status": r.status.value,
+            "raw_status": r.raw_status,
+            "is_reliable": r.is_reliable,
+            "notes": r.notes,
+        })
+
+    return {
+        "check": {
+            "id": check.id,
+            "run_id": check.run_id,
+            "date": check.check_date.isoformat(),
+            "checked_at": check.checked_at.isoformat(),
+            "adapter_name": check.adapter_name,
+            "status": check.status.value,
+            "error_message": check.error_message,
+            "results": results,
+        }
+    }
+
+
+@router.get("/notifications")
+def get_recent_notifications(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    """Retrieve recent notification events."""
+    from app.models.notification_event import NotificationEvent
+
+    events = (
+        db.query(NotificationEvent)
+        .order_by(NotificationEvent.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": e.id,
+            "date": e.date.isoformat(),
+            "subject_code": e.subject_code,
+            "subject_name": e.subject.name if e.subject else e.subject_code,
+            "recipient_email": e.recipient_email,
+            "status": e.status.value,
+            "dry_run": e.dry_run,
+            "sent_at": e.sent_at.isoformat() if e.sent_at else None,
+            "created_at": e.created_at.isoformat(),
+            "error_message": e.error_message,
+        }
+        for e in events
+    ]
+
