@@ -18,10 +18,12 @@ from app.notifications.google_chat.oauth import (
     InMemoryTokenStorage,
     OAuthToken,
 )
+from app.notifications.google_chat.fake import FakeGoogleChatClient
 from app.notifications.google_chat.provider import GoogleChatNotificationProvider
 
 __all__ = [
     "GoogleChatNotificationProvider",
+    "FakeGoogleChatClient",
     "GoogleChatConfig",
     "GoogleChatClient",
     "GoogleChatOAuthClient",

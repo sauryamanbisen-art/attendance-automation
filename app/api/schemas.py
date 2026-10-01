@@ -45,6 +45,10 @@ class ProfessorMappingSchema(BaseModel):
         max_length=255,
         description="Optional Google Chat space or DM resource name, e.g. spaces/AAAA123",
     )
+    is_active: bool = Field(
+        default=True,
+        description="Whether automated notifications are enabled for this professor mapping",
+    )
 
 
 class SubjectCreate(BaseModel):
@@ -64,6 +68,10 @@ class SubjectCreate(BaseModel):
         max_length=255,
         description="Optional Google Chat space or DM resource name",
     )
+    is_active: Optional[bool] = Field(
+        default=True,
+        description="Whether automated notifications are enabled for this professor mapping",
+    )
 
 
 class SubjectResponse(BaseModel):
@@ -77,6 +85,7 @@ class SubjectResponse(BaseModel):
     professor_name: Optional[str] = None
     professor_email: Optional[str] = None
     google_chat_space: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class CheckRunRequest(BaseModel):
@@ -191,6 +200,7 @@ class ProfessorSpaceMappingItem(BaseModel):
     professor_email: Optional[str] = None
     google_chat_space: Optional[str] = None
     is_configured: bool = Field(description="True if Google Chat space is set for this professor")
+    is_active: bool = Field(default=True, description="Whether professor mapping notifications are enabled")
 
 
 class SpaceMappingUpdateRequest(BaseModel):

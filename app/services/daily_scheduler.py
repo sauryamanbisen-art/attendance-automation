@@ -21,7 +21,13 @@ from sqlalchemy.orm import Session
 from app.adapters.base.adapter import BasePortalAdapter, SubjectAttendance
 from app.adapters.factory import get_portal_adapter
 from app.config import Settings, get_settings
-from app.core.enums import AttendanceStatus, AuditEventType, CheckStatus, DecisionAction
+from app.core.enums import (
+    AttendanceStatus,
+    AuditEventType,
+    CheckStatus,
+    DecisionAction,
+    DecisionReason,
+)
 from app.models.attendance_check import AttendanceCheck
 from app.models.attendance_result import AttendanceResult
 from app.models.subject import Subject
@@ -346,7 +352,7 @@ class DailyCheckRunner:
                         default_space=self.settings.google_chat_default_space,
                     )
                     # Note: GoogleChatNotificationProvider manages its own OAuthClient internally or takes config
-                    provider = GoogleChatNotificationProvider(config=chat_config)
+                    provider = GoogleChatNotificationProvider(config=chat_config, is_dry_run=is_dry_run)
                 else:
                     provider = DryRunNotificationProvider()
 
@@ -369,6 +375,22 @@ class DailyCheckRunner:
                         eff_date.isoformat(),
                         safe_err,
                     )
+            elif (
+                dec.reason == DecisionReason.MISSING_PROFESSOR_MAPPING
+                and dec.is_confirmed
+                and dec.status == AttendanceStatus.ABSENT
+            ):
+                self.audit_service.log(
+                    event_type=AuditEventType.NOTIFICATION,
+                    action="NOTIFICATION_SKIPPED_MISSING_MAPPING",
+                    entity_type="subjects",
+                    run_id=run_id,
+                    details={
+                        "subject_code": dec.subject_code,
+                        "date": eff_date.isoformat(),
+                        "reason": "MISSING_PROFESSOR_MAPPING",
+                    },
+                )
 
         self.audit_service.log(
             event_type=AuditEventType.ATTENDANCE_CHECK,

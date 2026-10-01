@@ -87,6 +87,16 @@ class NotificationService:
                 decision.subject_code,
                 decision.target_date,
             )
+            self.audit_service.log(
+                event_type=AuditEventType.NOTIFICATION,
+                action="NOTIFICATION_SKIPPED_MISSING_DESTINATION",
+                entity_type="subjects",
+                details={
+                    "subject_code": decision.subject_code,
+                    "target_date": decision.target_date.isoformat(),
+                    "reason": "MISSING_PROFESSOR_EMAIL",
+                },
+            )
             return None
 
         # Resolve subject name from DB

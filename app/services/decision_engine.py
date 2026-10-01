@@ -260,7 +260,11 @@ class DecisionEngine:
         is_extra = False
 
         if subject:
-            if subject.professor_mapping and subject.professor_mapping.professor_email:
+            if (
+                subject.professor_mapping
+                and subject.professor_mapping.professor_email
+                and getattr(subject.professor_mapping, "is_active", True)
+            ):
                 has_mapping = True
                 prof_email = subject.professor_mapping.professor_email
 

@@ -25,6 +25,7 @@ def test_subjects_html_served(client: TestClient) -> None:
     assert 'id="input-prof-name"' in html
     assert 'id="input-prof-email"' in html
     assert 'id="input-chat-space"' in html
+    assert 'id="input-prof-active"' in html
 
 def test_static_subjects_js_served(client: TestClient) -> None:
     """Verify static JS subjects files are properly mounted and served."""

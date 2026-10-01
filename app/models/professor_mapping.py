@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -28,6 +28,7 @@ class ProfessorMapping(Base):
     professor_name: Mapped[str] = mapped_column(String(150), nullable=False)
     professor_email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     google_chat_space: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -49,5 +50,5 @@ class ProfessorMapping(Base):
     def __repr__(self) -> str:
         return (
             f"<ProfessorMapping subject_id={self.subject_id} prof={self.professor_name} "
-            f"email={self.professor_email} space={self.google_chat_space}>"
+            f"email={self.professor_email} space={self.google_chat_space} active={self.is_active}>"
         )

@@ -68,5 +68,8 @@ def init_db() -> None:
             if columns and "google_chat_space" not in columns:
                 conn.execute(text("ALTER TABLE professor_mappings ADD COLUMN google_chat_space VARCHAR(255)"))
                 conn.commit()
+            if columns and "is_active" not in columns:
+                conn.execute(text("ALTER TABLE professor_mappings ADD COLUMN is_active BOOLEAN DEFAULT 1 NOT NULL"))
+                conn.commit()
     except Exception:
         pass

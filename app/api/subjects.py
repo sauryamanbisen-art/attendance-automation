@@ -22,6 +22,7 @@ def list_subjects(db: Session = Depends(get_db)) -> List[SubjectResponse]:
         prof_name = s.professor_mapping.professor_name if s.professor_mapping else None
         prof_email = s.professor_mapping.professor_email if s.professor_mapping else None
         chat_space = s.professor_mapping.google_chat_space if s.professor_mapping else None
+        is_active = s.professor_mapping.is_active if s.professor_mapping else None
         results.append(
             SubjectResponse(
                 id=s.id,
@@ -30,6 +31,7 @@ def list_subjects(db: Session = Depends(get_db)) -> List[SubjectResponse]:
                 professor_name=prof_name,
                 professor_email=prof_email,
                 google_chat_space=chat_space,
+                is_active=is_active,
             )
         )
     return results
@@ -53,11 +55,13 @@ def create_subject(
     db.flush()
 
     if payload.professor_name and payload.professor_email:
+        is_active_val = payload.is_active if payload.is_active is not None else True
         mapping = ProfessorMapping(
             subject_id=subject.id,
             professor_name=payload.professor_name,
             professor_email=str(payload.professor_email),
             google_chat_space=payload.google_chat_space,
+            is_active=is_active_val,
         )
         db.add(mapping)
 
@@ -67,6 +71,7 @@ def create_subject(
     prof_name = subject.professor_mapping.professor_name if subject.professor_mapping else None
     prof_email = subject.professor_mapping.professor_email if subject.professor_mapping else None
     chat_space = subject.professor_mapping.google_chat_space if subject.professor_mapping else None
+    is_active = subject.professor_mapping.is_active if subject.professor_mapping else None
 
     return SubjectResponse(
         id=subject.id,
@@ -75,6 +80,7 @@ def create_subject(
         professor_name=prof_name,
         professor_email=prof_email,
         google_chat_space=chat_space,
+        is_active=is_active,
     )
 
 
@@ -96,12 +102,14 @@ def set_professor_mapping(
         subject.professor_mapping.professor_name = payload.professor_name
         subject.professor_mapping.professor_email = str(payload.professor_email)
         subject.professor_mapping.google_chat_space = payload.google_chat_space
+        subject.professor_mapping.is_active = payload.is_active
     else:
         mapping = ProfessorMapping(
             subject_id=subject.id,
             professor_name=payload.professor_name,
             professor_email=str(payload.professor_email),
             google_chat_space=payload.google_chat_space,
+            is_active=payload.is_active,
         )
         db.add(mapping)
 
@@ -115,6 +123,7 @@ def set_professor_mapping(
         professor_name=subject.professor_mapping.professor_name,
         professor_email=subject.professor_mapping.professor_email,
         google_chat_space=subject.professor_mapping.google_chat_space,
+        is_active=subject.professor_mapping.is_active,
     )
 
 
@@ -138,16 +147,19 @@ def update_subject(
     subject.name = payload.name
 
     if payload.professor_name and payload.professor_email:
+        is_active_val = payload.is_active if payload.is_active is not None else True
         if subject.professor_mapping:
             subject.professor_mapping.professor_name = payload.professor_name
             subject.professor_mapping.professor_email = str(payload.professor_email)
             subject.professor_mapping.google_chat_space = payload.google_chat_space
+            subject.professor_mapping.is_active = is_active_val
         else:
             mapping = ProfessorMapping(
                 subject_id=subject.id,
                 professor_name=payload.professor_name,
                 professor_email=str(payload.professor_email),
                 google_chat_space=payload.google_chat_space,
+                is_active=is_active_val,
             )
             db.add(mapping)
     elif subject.professor_mapping:
@@ -159,6 +171,7 @@ def update_subject(
     prof_name = subject.professor_mapping.professor_name if subject.professor_mapping else None
     prof_email = subject.professor_mapping.professor_email if subject.professor_mapping else None
     chat_space = subject.professor_mapping.google_chat_space if subject.professor_mapping else None
+    is_active = subject.professor_mapping.is_active if subject.professor_mapping else None
 
     return SubjectResponse(
         id=subject.id,
@@ -167,6 +180,7 @@ def update_subject(
         professor_name=prof_name,
         professor_email=prof_email,
         google_chat_space=chat_space,
+        is_active=is_active,
     )
 
 

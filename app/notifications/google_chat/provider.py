@@ -46,8 +46,10 @@ class GoogleChatNotificationProvider(BaseNotificationProvider):
         api_client: Optional[GoogleChatClient] = None,
         token_storage: Optional[BaseTokenStorage] = None,
         http_client: Optional[httpx.Client] = None,
+        is_dry_run: bool = False,
     ) -> None:
         self.config = config or GoogleChatConfig()
+        self._is_dry_run = is_dry_run
 
         # Initialize token storage
         if token_storage is not None:
@@ -76,7 +78,7 @@ class GoogleChatNotificationProvider(BaseNotificationProvider):
 
     @property
     def is_dry_run(self) -> bool:
-        return False
+        return self._is_dry_run
 
     def validate_config(self) -> bool:
         """Validate OAuth and routing configuration.
@@ -154,7 +156,7 @@ class GoogleChatNotificationProvider(BaseNotificationProvider):
             return NotificationOutcome(
                 success=False,
                 provider_name=self.provider_name,
-                is_dry_run=False,
+                is_dry_run=self.is_dry_run,
                 message_preview=preview,
                 error_message=err_msg,
                 details={"recipient": payload.recipient_email},
@@ -168,13 +170,34 @@ class GoogleChatNotificationProvider(BaseNotificationProvider):
             return NotificationOutcome(
                 success=False,
                 provider_name=self.provider_name,
-                is_dry_run=False,
+                is_dry_run=self.is_dry_run,
                 message_preview=preview,
                 error_message=str(exc),
                 details={"recipient": payload.recipient_email},
             )
 
-        # 3. Deliver message via Google Chat API
+        # 3. Dry run guard: NEVER make external requests
+        if self.is_dry_run:
+            logger.info(
+                "[DRY RUN] Would have dispatched Google Chat message to %s in space %s",
+                payload.recipient_email,
+                target_space,
+            )
+            return NotificationOutcome(
+                success=True,
+                provider_name=self.provider_name,
+                is_dry_run=True,
+                message_preview=preview,
+                error_message=None,
+                details={
+                    "recipient": payload.recipient_email,
+                    "space": target_space,
+                    "subject_code": payload.subject_code,
+                    "target_date": payload.target_date.isoformat(),
+                },
+            )
+
+        # 4. Deliver message via Google Chat API
         try:
             api_response = self.api_client.send_message(
                 space_name=target_space,

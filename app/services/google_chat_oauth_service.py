@@ -233,6 +233,7 @@ class GoogleChatOAuthService:
                     "professor_email": prof_email,
                     "google_chat_space": space,
                     "is_configured": bool(space and space.strip()),
+                    "is_active": s.professor_mapping.is_active if s.professor_mapping else True,
                 }
             )
         return items
@@ -263,4 +264,5 @@ class GoogleChatOAuthService:
             "professor_email": subject.professor_mapping.professor_email,
             "google_chat_space": subject.professor_mapping.google_chat_space,
             "is_configured": bool(subject.professor_mapping.google_chat_space),
+            "is_active": subject.professor_mapping.is_active,
         }

@@ -30,6 +30,7 @@ export class SubjectsController {
       inputProfName: document.getElementById('input-prof-name'),
       inputProfEmail: document.getElementById('input-prof-email'),
       inputChatSpace: document.getElementById('input-chat-space'),
+      inputProfActive: document.getElementById('input-prof-active'),
     };
 
     this.subjects = [];
@@ -89,10 +90,21 @@ export class SubjectsController {
     for (const sub of this.subjects) {
       const hasProf = !!sub.professor_name;
       const hasEmail = !!sub.professor_email;
+      const hasSpace = !!sub.google_chat_space;
       const mappingValid = hasProf && hasEmail;
+      const isActive = sub.is_active !== false;
       
-      const badgeClass = mappingValid ? 'badge-success' : 'badge-warning';
-      const badgeText = mappingValid ? 'Mapped' : 'No Valid Mapping';
+      let badgeClass = 'badge-warning';
+      let badgeText = 'No Valid Mapping';
+      if (mappingValid) {
+        if (isActive) {
+          badgeClass = 'badge-success';
+          badgeText = 'Mapped & Active';
+        } else {
+          badgeClass = 'badge-neutral';
+          badgeText = 'Notifications Disabled';
+        }
+      }
 
       html += `
         <div class="card" style="margin-bottom: 1rem; padding: 1.25rem;">
@@ -121,8 +133,12 @@ export class SubjectsController {
                 <span style="color: ${hasEmail ? 'var(--text-main)' : 'var(--text-subtle)'};">${hasEmail ? escapeHtml(sub.professor_email) : 'Not configured'}</span>
               </div>
               <div>
-                <strong style="display: block; font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem;">Google Chat Space</strong>
-                <span style="color: ${sub.google_chat_space ? 'var(--text-main)' : 'var(--text-subtle)'};">${sub.google_chat_space ? escapeHtml(sub.google_chat_space) : 'Not configured'}</span>
+                <strong style="display: block; font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem;">Google Chat Destination</strong>
+                <div style="margin-top: 0.15rem;">
+                  ${hasSpace
+                    ? `<span class="badge badge-success" style="font-size: 0.75rem;"><span class="badge-dot"></span>Space Configured</span> <code style="margin-left: 0.35rem; font-size: 0.8rem; color: var(--text-main); background: rgba(255,255,255,0.06); padding: 0.15rem 0.4rem; border-radius: 4px;">${escapeHtml(sub.google_chat_space)}</code>`
+                    : '<span class="badge badge-neutral" style="font-size: 0.75rem;">Not Configured</span>'}
+                </div>
               </div>
             </div>
           </div>
@@ -141,6 +157,9 @@ export class SubjectsController {
     this.els.modalTitle.innerText = 'Add Subject';
     this.els.form.reset();
     this.els.inputOriginalCode.value = '';
+    if (this.els.inputProfActive) {
+      this.els.inputProfActive.checked = true;
+    }
     this.els.modal.style.display = 'flex';
   }
 
@@ -157,6 +176,9 @@ export class SubjectsController {
     this.els.inputProfName.value = sub.professor_name || '';
     this.els.inputProfEmail.value = sub.professor_email || '';
     this.els.inputChatSpace.value = sub.google_chat_space || '';
+    if (this.els.inputProfActive) {
+      this.els.inputProfActive.checked = sub.is_active !== false;
+    }
     
     this.els.modal.style.display = 'flex';
   }
@@ -166,19 +188,45 @@ export class SubjectsController {
     
     const originalCode = this.els.inputOriginalCode.value;
     
-    const payload = {
-      code: this.els.inputCode.value.trim(),
-      name: this.els.inputName.value.trim(),
-      professor_name: this.els.inputProfName.value.trim() || null,
-      professor_email: this.els.inputProfEmail.value.trim() || null,
-      google_chat_space: this.els.inputChatSpace.value.trim() || null,
-    };
-    
+    const code = this.els.inputCode.value.trim();
+    const name = this.els.inputName.value.trim();
+    const profName = this.els.inputProfName.value.trim() || null;
+    const profEmail = this.els.inputProfEmail.value.trim() || null;
+    const chatSpace = this.els.inputChatSpace.value.trim() || null;
+    const isActive = this.els.inputProfActive ? this.els.inputProfActive.checked : true;
+
+    if (!code || !name) {
+      window.dispatchEvent(new CustomEvent('app-alert', { detail: { message: 'Subject Code and Subject Name are required.', type: 'error' }}));
+      return;
+    }
+
     // Safety verification check: if you provide name, you must provide email, and vice versa.
-    if ((payload.professor_name && !payload.professor_email) || (!payload.professor_name && payload.professor_email)) {
+    if ((profName && !profEmail) || (!profName && profEmail)) {
       window.dispatchEvent(new CustomEvent('app-alert', { detail: { message: 'Professor mapping requires both Name and Email.', type: 'error' }}));
       return;
     }
+
+    // Email format validation
+    const emailRegex = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    if (profEmail && !emailRegex.test(profEmail)) {
+      window.dispatchEvent(new CustomEvent('app-alert', { detail: { message: 'Please enter a valid professor email address.', type: 'error' }}));
+      return;
+    }
+
+    // Chat space format validation (no whitespace allowed)
+    if (chatSpace && /\s/.test(chatSpace)) {
+      window.dispatchEvent(new CustomEvent('app-alert', { detail: { message: 'Google Chat space resource name cannot contain spaces.', type: 'error' }}));
+      return;
+    }
+
+    const payload = {
+      code,
+      name,
+      professor_name: profName,
+      professor_email: profEmail,
+      google_chat_space: chatSpace,
+      is_active: isActive,
+    };
     
     try {
       const submitBtn = this.els.form.querySelector('button[type="submit"]');

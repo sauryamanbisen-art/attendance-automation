@@ -11,6 +11,7 @@
  * @property {string|null} professor_name
  * @property {string|null} professor_email
  * @property {string|null} google_chat_space
+ * @property {boolean|null} [is_active]
  */
 
 /**
