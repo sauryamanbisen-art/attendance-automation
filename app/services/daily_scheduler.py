@@ -30,7 +30,8 @@ from app.core.enums import (
 )
 from app.models.attendance_check import AttendanceCheck
 from app.models.attendance_result import AttendanceResult
-from app.models.subject import Subject
+from app.models.subject import Subject, is_valid_curriculum_code
+from app.models.timetable import TimetableSlot
 from app.notifications.base import BaseNotificationProvider
 from app.notifications.dry_run import DryRunNotificationProvider
 from app.notifications.service import NotificationService
@@ -176,7 +177,42 @@ class DailyCheckRunner:
                 dry_run=is_dry_run,
             )
 
-        # 2. Check student daily attendance confirmation ('I WENT TO COLLEGE')
+        # 2. Schedule resolution and timetable gating (verify if classes actually occurred on this date)
+        timetable_service = TimetableService(self.db)
+        is_holiday = timetable_service.is_holiday(eff_date)
+        has_configured_slots = self.db.query(TimetableSlot).count() > 0
+        expected_subjects = timetable_service.get_classes_for_date(eff_date)
+
+        if has_configured_slots:
+            expected_subjects = [s for s in expected_subjects if is_valid_curriculum_code(s.code)]
+            expected_subject_codes = {s.code: s for s in expected_subjects}
+            if len(expected_subject_codes) == 0:
+                logger.info(
+                    "No verified classes scheduled for %s (holiday or non-class day). Skipping check.",
+                    eff_date.isoformat(),
+                )
+                self.audit_service.log(
+                    event_type=AuditEventType.ATTENDANCE_CHECK,
+                    action="SCHEDULER_SKIPPED",
+                    entity_type="attendance_checks",
+                    run_id=run_id,
+                    details={"reason": "NO_CLASSES_SCHEDULED", "date": eff_date.isoformat()},
+                )
+                return DailyCheckResult(
+                    run_id=run_id,
+                    target_date=eff_date,
+                    status="SUCCESS",
+                    reason="NO_CLASSES_SCHEDULED",
+                    subjects_checked=0,
+                    eligible_count=0,
+                    decisions=[],
+                    notifications_sent=0,
+                    dry_run=is_dry_run,
+                )
+        else:
+            expected_subject_codes = {s.code: s for s in expected_subjects}
+
+        # 3. Check student daily attendance confirmation ('I WENT TO COLLEGE')
         if not self.confirmation_service.is_confirmed(eff_date):
             logger.info(
                 "Student did not confirm attendance for %s. Skipping portal check.",
@@ -200,7 +236,7 @@ class DailyCheckRunner:
                 dry_run=is_dry_run,
             )
 
-        # 3. Instantiate portal adapter if not injected
+        # 4. Instantiate portal adapter if not injected
         portal_adapter = adapter or get_portal_adapter(
             adapter_name=adapter_name,
             settings=self.settings,
@@ -255,19 +291,37 @@ class DailyCheckRunner:
         finally:
             portal_adapter.close()
 
-        # 4. Fetch expected classes from TimetableService
-        timetable_service = TimetableService(self.db)
-        expected_subjects = timetable_service.get_classes_for_date(eff_date)
-        expected_subject_codes = {s.code: s for s in expected_subjects}
-
-        # 5. Evaluate decisions and save results
+        # 5. Evaluate decisions and save results strictly for verified scheduled subjects
         decisions: List[DecisionResult] = []
         processed_codes = set()
 
         for rec in records:
+            # Gating Rule 1: Non-curriculum codes (e.g. CS101, ALL) are never evaluated or stored
+            if has_configured_slots and not is_valid_curriculum_code(rec.subject_code):
+                logger.warning("Ignoring non-curriculum subject code from adapter: %s", rec.subject_code)
+                continue
+
+            # Gating Rule 2: Unscheduled classes for this specific date are never evaluated or stored
+            if has_configured_slots and rec.subject_code not in expected_subject_codes:
+                logger.info(
+                    "Subject %s is not scheduled for %s. Excluding from check reconciliation.",
+                    rec.subject_code,
+                    eff_date.isoformat(),
+                )
+                continue
+
             processed_codes.add(rec.subject_code)
             subject = self.db.query(Subject).filter(Subject.code == rec.subject_code).first()
             subject_id = subject.id if subject else None
+
+            # Clean human-readable note only; never serialize raw debug dictionary
+            clean_note = None
+            if rec.metadata and isinstance(rec.metadata, dict):
+                raw_n = rec.metadata.get("note") or rec.metadata.get("description")
+                if raw_n and isinstance(raw_n, str) and not raw_n.strip().startswith("{"):
+                    clean_note = raw_n.strip()
+            elif isinstance(rec.metadata, str) and not rec.metadata.strip().startswith("{"):
+                clean_note = rec.metadata.strip()
 
             res_record = AttendanceResult(
                 check_id=check_record.id,
@@ -276,7 +330,7 @@ class DailyCheckRunner:
                 status=rec.status,
                 raw_status=rec.raw_status,
                 is_reliable=rec.is_reliable,
-                notes=str(rec.metadata) if rec.metadata else None,
+                notes=clean_note,
             )
             self.db.add(res_record)
 
@@ -399,7 +453,7 @@ class DailyCheckRunner:
             run_id=run_id,
             details={
                 "date": eff_date.isoformat(),
-                "subjects_checked": len(records),
+                "subjects_checked": len(decisions),
                 "eligible_count": eligible_count,
                 "notifications_sent": notifications_sent,
                 "dry_run": is_dry_run,
@@ -410,7 +464,7 @@ class DailyCheckRunner:
             run_id=run_id,
             target_date=eff_date,
             status="SUCCESS",
-            subjects_checked=len(records),
+            subjects_checked=len(decisions),
             eligible_count=eligible_count,
             decisions=decisions,
             notifications_sent=notifications_sent,
