@@ -537,6 +537,117 @@ class TestGoogleChatClient:
         with pytest.raises(GoogleChatApiError, match="Network timeout"):
             client.send_message(space_name="spaces/X", text="test")
 
+    def test_find_direct_message_success(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "name": "spaces/DM_SPACE_123",
+            "type": "DIRECT_MESSAGE",
+            "spaceType": "DIRECT_MESSAGE",
+        }
+        mock_http.get.return_value = mock_resp
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        result = client.find_direct_message("professor@university.edu")
+
+        assert result["name"] == "spaces/DM_SPACE_123"
+        mock_http.get.assert_called_once()
+        call_args = mock_http.get.call_args
+        assert call_args[0][0] == "https://chat.googleapis.com/v1/spaces:findDirectMessage"
+        assert call_args[1]["params"]["name"] == "users/professor@university.edu"
+        assert call_args[1]["headers"]["Authorization"] == "Bearer mock_valid_access_token"
+
+    def test_find_direct_message_invalid_email(self, mock_oauth_client):
+        client = GoogleChatClient(oauth_client=mock_oauth_client)
+        with pytest.raises(GoogleChatRecipientError, match="Invalid professor email"):
+            client.find_direct_message("not-an-email")
+        with pytest.raises(GoogleChatRecipientError, match="Invalid professor email"):
+            client.find_direct_message("   ")
+
+    def test_find_direct_message_400_recipient_error(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 400
+        mock_resp.json.return_value = {"error": {"message": "Invalid user resource"}}
+        mock_http.get.return_value = mock_resp
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        with pytest.raises(GoogleChatRecipientError, match="Cannot find Google Chat user"):
+            client.find_direct_message("unknown@university.edu")
+
+    def test_find_direct_message_401_auth_error(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 401
+        mock_resp.json.return_value = {"error": {"message": "Invalid credentials"}}
+        mock_http.get.return_value = mock_resp
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        with pytest.raises(OAuthAuthenticationError, match="401 Unauthorized"):
+            client.find_direct_message("prof@uni.edu")
+
+    def test_find_direct_message_403_insufficient_scope(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 403
+        mock_resp.json.return_value = {"error": {"message": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}}
+        mock_http.get.return_value = mock_resp
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        with pytest.raises(GoogleChatPermissionError, match="chat.spaces.readonly"):
+            client.find_direct_message("prof@uni.edu")
+
+    def test_find_direct_message_404_no_dm_exists(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 404
+        mock_resp.json.return_value = {"error": {"message": "Space not found"}}
+        mock_http.get.return_value = mock_resp
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        with pytest.raises(GoogleChatRecipientError, match="No direct message space exists"):
+            client.find_direct_message("prof@uni.edu")
+
+    def test_find_direct_message_429_rate_limit(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 429
+        mock_resp.json.return_value = {"error": {"message": "Rate limit exceeded"}}
+        mock_http.get.return_value = mock_resp
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        with pytest.raises(GoogleChatRateLimitError, match="429 RESOURCE_EXHAUSTED"):
+            client.find_direct_message("prof@uni.edu")
+
+    def test_find_direct_message_500_api_error(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 503
+        mock_resp.json.return_value = {"error": {"message": "Service unavailable"}}
+        mock_http.get.return_value = mock_resp
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        with pytest.raises(GoogleChatApiError, match="server error"):
+            client.find_direct_message("prof@uni.edu")
+
+    def test_find_direct_message_timeout(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.get.side_effect = httpx.TimeoutException("Read timed out")
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        with pytest.raises(GoogleChatApiError, match="Network timeout"):
+            client.find_direct_message("prof@uni.edu")
+
+    def test_find_direct_message_request_error(self, mock_oauth_client):
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.get.side_effect = httpx.ConnectError("Connection refused")
+
+        client = GoogleChatClient(oauth_client=mock_oauth_client, http_client=mock_http)
+        with pytest.raises(GoogleChatApiError, match="Network error"):
+            client.find_direct_message("prof@uni.edu")
+
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 6. GoogleChatNotificationProvider

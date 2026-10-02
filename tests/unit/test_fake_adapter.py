@@ -21,7 +21,7 @@ def test_fake_adapter_python_present() -> None:
 
     records = adapter.get_attendance_for_date(date(2026, 9, 25))
     assert len(records) == 1
-    assert records[0].subject_code == "CS101"
+    assert records[0].subject_code == "303PDS"
     assert records[0].status == AttendanceStatus.PRESENT
     assert records[0].is_reliable is True
 
@@ -35,7 +35,7 @@ def test_fake_adapter_python_absent() -> None:
     records = adapter.get_attendance_for_date(date(2026, 9, 25))
 
     assert len(records) == 1
-    assert records[0].subject_code == "CS101"
+    assert records[0].subject_code == "303PDS"
     assert records[0].status == AttendanceStatus.ABSENT
     assert records[0].is_reliable is True
 
@@ -46,7 +46,7 @@ def test_fake_adapter_unreliable_absent() -> None:
     records = adapter.get_attendance_for_date(date(2026, 9, 25))
 
     assert len(records) == 1
-    assert records[0].subject_code == "CS101"
+    assert records[0].subject_code == "303PDS"
     assert records[0].status == AttendanceStatus.ABSENT
     assert records[0].is_reliable is False
     assert "warning" in records[0].metadata
@@ -58,7 +58,7 @@ def test_fake_adapter_python_unknown() -> None:
     records = adapter.get_attendance_for_date(date(2026, 9, 25))
 
     assert len(records) == 1
-    assert records[0].subject_code == "CS101"
+    assert records[0].subject_code == "303PDS"
     assert records[0].status == AttendanceStatus.UNKNOWN
     assert records[0].is_reliable is True
 
@@ -71,9 +71,9 @@ def test_fake_adapter_mixed_scenario() -> None:
     assert len(records) == 3
     by_code = {r.subject_code: r for r in records}
 
-    assert by_code["CS101"].status == AttendanceStatus.ABSENT
-    assert by_code["CS102"].status == AttendanceStatus.PRESENT
-    assert by_code["CS103"].status == AttendanceStatus.UNKNOWN
+    assert by_code["303PDS"].status == AttendanceStatus.ABSENT
+    assert by_code["301ADS"].status == AttendanceStatus.PRESENT
+    assert by_code["302OPS"].status == AttendanceStatus.UNKNOWN
 
 
 def test_fake_adapter_portal_unavailable() -> None:

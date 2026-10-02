@@ -262,7 +262,7 @@ class TestDiscrepancyEvaluationAndDryRun:
         check_time = datetime(2026, 9, 28, 16, 30, tzinfo=tz_kolkata)
 
         # 1. Setup subject and professor mapping
-        subj = Subject(code="CS101", name="Python Programming")
+        subj = Subject(code="303PDS", name="Python for Data Science")
         db_session.add(subj)
         db_session.flush()
 
@@ -276,7 +276,7 @@ class TestDiscrepancyEvaluationAndDryRun:
         # 2. Confirm student attendance
         ConfirmationService(db_session).confirm_attendance(test_date)
 
-        # 3. Use Fake adapter with PYTHON_ABSENT scenario (CS101 is ABSENT)
+        # 3. Use Fake adapter with PYTHON_ABSENT scenario (303PDS is ABSENT)
         adapter = FakePortalAdapter(scenario=FakeScenario.PYTHON_ABSENT)
 
         result = runner.run_daily_check(
@@ -310,7 +310,7 @@ class TestDiscrepancyEvaluationAndDryRun:
         test_date = date(2026, 9, 28)
         check_time = datetime(2026, 9, 28, 16, 30, tzinfo=tz_kolkata)
 
-        subj = Subject(code="CS101", name="Python Programming")
+        subj = Subject(code="303PDS", name="Python for Data Science")
         db_session.add(subj)
         db_session.flush()
 

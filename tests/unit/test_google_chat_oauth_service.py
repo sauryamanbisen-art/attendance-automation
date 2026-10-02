@@ -366,3 +366,132 @@ class TestRecipientSpaceSafety:
         assert "super_secret_access_tok_456" not in status_str
         assert "super_secret_refresh_tok_789" not in status_str
 
+    def test_find_dm_space_success(self):
+        mock_api = MagicMock()
+        mock_api.find_direct_message.return_value = {
+            "name": "spaces/DM_AAAA111",
+            "type": "DIRECT_MESSAGE",
+        }
+        svc = GoogleChatOAuthService(api_client=mock_api)
+        space = svc.find_dm_space("turing@university.edu")
+        assert space == "spaces/DM_AAAA111"
+        mock_api.find_direct_message.assert_called_once_with(user_email="turing@university.edu")
+
+    def test_find_dm_space_empty_email_raises_value_error(self):
+        svc = GoogleChatOAuthService()
+        with pytest.raises(ValueError, match="Professor email must be provided"):
+            svc.find_dm_space("   ")
+
+    def test_find_dm_space_missing_name_in_response(self):
+        mock_api = MagicMock()
+        mock_api.find_direct_message.return_value = {}
+        svc = GoogleChatOAuthService(api_client=mock_api)
+        with pytest.raises(ValueError, match="unexpected response without space name"):
+            svc.find_dm_space("turing@university.edu")
+
+    def test_discover_professor_dm_updates_target_and_matching_subjects(
+        self, db_session: Session, configured_subject: Subject
+    ):
+        # Create a second subject with the same professor email
+        sub2 = Subject(code="CS102", name="Advanced Systems")
+        db_session.add(sub2)
+        db_session.flush()
+        m2 = ProfessorMapping(
+            subject_id=sub2.id,
+            professor_name="Dr. Alan Turing",
+            professor_email="turing@university.edu",
+            google_chat_space=None,
+        )
+        db_session.add(m2)
+        db_session.commit()
+
+        mock_api = MagicMock()
+        mock_api.find_direct_message.return_value = {"name": "spaces/DM_TURING_123"}
+        svc = GoogleChatOAuthService(api_client=mock_api)
+
+        result = svc.discover_professor_dm(
+            db=db_session,
+            professor_email="turing@university.edu",
+            subject_code="CS101",
+        )
+
+        assert result["space"] == "spaces/DM_TURING_123"
+        assert result["professor_email"] == "turing@university.edu"
+        assert result["subject_code"] == "CS101"
+        assert "CS101" in result["updated_subjects"]
+        assert "CS102" in result["updated_subjects"]
+
+        # Verify DB records updated
+        db_session.refresh(configured_subject.professor_mapping)
+        db_session.refresh(m2)
+        assert configured_subject.professor_mapping.google_chat_space == "spaces/DM_TURING_123"
+        assert m2.google_chat_space == "spaces/DM_TURING_123"
+
+    def test_discover_professor_dm_invalid_subject_code(self, db_session: Session):
+        mock_api = MagicMock()
+        svc = GoogleChatOAuthService(api_client=mock_api)
+        with pytest.raises(KeyError, match="not found"):
+            svc.discover_professor_dm(
+                db=db_session,
+                professor_email="turing@university.edu",
+                subject_code="NONEXISTENT",
+            )
+
+    def test_discover_professor_dm_subject_without_mapping(self, db_session: Session):
+        sub = Subject(code="CS999", name="No Prof Subject")
+        db_session.add(sub)
+        db_session.commit()
+
+        mock_api = MagicMock()
+        svc = GoogleChatOAuthService(api_client=mock_api)
+        with pytest.raises(ValueError, match="does not have a professor assigned"):
+            svc.discover_professor_dm(
+                db=db_session,
+                professor_email="prof@uni.edu",
+                subject_code="CS999",
+            )
+
+    def test_discover_and_update_professor_space_from_mapping(
+        self, db_session: Session, configured_subject: Subject
+    ):
+        mock_api = MagicMock()
+        mock_api.find_direct_message.return_value = {"name": "spaces/DM_FOUND_1"}
+        svc = GoogleChatOAuthService(api_client=mock_api)
+
+        res = svc.discover_and_update_professor_space(db=db_session, subject_code="CS101")
+        assert res["space"] == "spaces/DM_FOUND_1"
+        assert res["professor_email"] == "turing@university.edu"
+
+        db_session.refresh(configured_subject.professor_mapping)
+        assert configured_subject.professor_mapping.google_chat_space == "spaces/DM_FOUND_1"
+
+    def test_discover_and_update_professor_space_override_email(
+        self, db_session: Session, configured_subject: Subject
+    ):
+        mock_api = MagicMock()
+        mock_api.find_direct_message.return_value = {"name": "spaces/DM_OVERRIDE"}
+        svc = GoogleChatOAuthService(api_client=mock_api)
+
+        res = svc.discover_and_update_professor_space(
+            db=db_session,
+            subject_code="CS101",
+            professor_email="alternate@university.edu",
+        )
+        assert res["space"] == "spaces/DM_OVERRIDE"
+        assert res["professor_email"] == "alternate@university.edu"
+        db_session.refresh(configured_subject.professor_mapping)
+        assert configured_subject.professor_mapping.google_chat_space == "spaces/DM_OVERRIDE"
+
+    def test_discover_and_update_professor_space_subject_not_found(self, db_session: Session):
+        svc = GoogleChatOAuthService()
+        with pytest.raises(KeyError, match="not found"):
+            svc.discover_and_update_professor_space(db=db_session, subject_code="UNKNOWN")
+
+    def test_discover_and_update_professor_space_no_email(self, db_session: Session):
+        sub = Subject(code="CS888", name="Empty Prof")
+        db_session.add(sub)
+        db_session.commit()
+        svc = GoogleChatOAuthService()
+        with pytest.raises(ValueError, match="does not have a professor email configured"):
+            svc.discover_and_update_professor_space(db=db_session, subject_code="CS888")
+
