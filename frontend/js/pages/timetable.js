@@ -139,40 +139,44 @@ export class TimetableController {
       const isToday = i === todayWeekday;
       
       html += `
-        <div class="card" style="padding: 1rem; border-top: ${isToday ? '3px solid var(--accent-primary)' : '1px solid var(--border-subtle)'}; background: ${isToday ? 'var(--bg-card-elevated)' : 'var(--bg-card)'}">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-subtle);">
-            <h3 class="card-title" style="font-size: 1rem; color: ${isToday ? 'var(--text-main)' : 'var(--text-muted)'}">
-              ${this.weekdays[i]} ${isToday ? '<span class="badge badge-success" style="margin-left: 0.5rem; font-size: 0.6rem;">TODAY</span>' : ''}
+        <div class="card" style="padding: 1.15rem; border-top: ${isToday ? '3px solid var(--primary)' : '1px solid var(--border-medium)'}; background: ${isToday ? 'var(--neutral-white)' : 'var(--neutral-white)'}; box-shadow: ${isToday ? 'var(--shadow-md)' : 'var(--shadow-sm)'};">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border-subtle);">
+            <h3 class="card-title" style="font-size: 0.95rem; color: ${isToday ? 'var(--primary)' : 'var(--text-main)'};">
+              ${this.weekdays[i]} ${isToday ? '<span class="badge badge-success" style="margin-left: 0.35rem; font-size: 0.62rem;">TODAY</span>' : ''}
             </h3>
-            <span style="font-size: 0.75rem; color: var(--text-subtle);">${daySlots.length} class${daySlots.length === 1 ? '' : 'es'}</span>
+            <span style="font-size: 0.725rem; font-weight: 600; color: var(--text-muted);">${daySlots.length} class${daySlots.length === 1 ? '' : 'es'}</span>
           </div>
       `;
 
       if (daySlots.length === 0) {
-        html += `<div style="text-align: center; color: var(--text-subtle); font-size: 0.8rem; padding: 1rem 0;">No classes scheduled</div>`;
+        html += `<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 1.5rem 0;">No classes scheduled</div>`;
       } else {
         html += `<div style="display: flex; flex-direction: column; gap: 0.75rem;">`;
         for (const slot of daySlots) {
           const subject = this.subjects.find(s => s.id === slot.subject_id);
           const subjName = subject ? subject.code : 'Unknown';
+          const subjFullName = subject ? subject.name : '';
           
           html += `
-            <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.75rem;">
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-                <strong style="color: var(--text-main); font-size: 0.9rem;">${escapeHtml(subjName)}</strong>
-                <div style="display: flex; gap: 0.25rem;">
-                  <button class="btn-edit-slot" data-id="${slot.id}" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding: 0.2rem;" title="Edit">✏️</button>
-                  <button class="btn-delete-slot" data-id="${slot.id}" style="background:none; border:none; color:var(--color-danger); cursor:pointer; padding: 0.2rem;" title="Delete">🗑️</button>
+            <div style="background: var(--neutral-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.85rem;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.4rem;">
+                <div>
+                  <span class="code-tag" style="margin-bottom: 0.2rem;">${escapeHtml(subjName)}</span>
+                  ${subjFullName ? `<div style="font-size: 0.775rem; color: var(--text-muted); margin-top: 0.15rem;">${escapeHtml(subjFullName)}</div>` : ''}
+                </div>
+                <div style="display: flex; gap: 0.35rem;">
+                  <button type="button" class="btn-icon-round btn-edit-slot" data-id="${slot.id}" style="width: 28px; height: 28px; font-size: 0.75rem;" title="Edit Class">✏️</button>
+                  <button type="button" class="btn-icon-round btn-delete-slot" data-id="${slot.id}" style="width: 28px; height: 28px; font-size: 0.75rem; color: var(--color-danger); border-color: var(--tertiary-border);" title="Delete Class">🗑️</button>
                 </div>
               </div>
               
-              <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
-                <span aria-hidden="true">⏱️</span> ${slot.start_time.slice(0, 5)} - ${slot.end_time.slice(0, 5)}
+              <div style="font-size: 0.8rem; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 0.4rem; font-family: var(--font-mono); margin-top: 0.4rem;">
+                <span aria-hidden="true">⏱</span> ${slot.start_time.slice(0, 5)} - ${slot.end_time.slice(0, 5)}
               </div>
               
-              ${slot.period_name ? `<div style="font-size: 0.75rem; color: var(--text-subtle);">📍 ${escapeHtml(slot.period_name)}</div>` : ''}
+              ${slot.period_name ? `<div style="font-size: 0.725rem; color: var(--text-muted); margin-top: 0.2rem;">📍 ${escapeHtml(slot.period_name)}</div>` : ''}
               ${slot.valid_from || slot.valid_to ? `
-                <div style="font-size: 0.7rem; margin-top: 0.4rem; color: var(--color-warning);">
+                <div style="font-size: 0.7rem; margin-top: 0.35rem; color: var(--color-warning);">
                   Valid: ${slot.valid_from ? slot.valid_from : 'Start'} to ${slot.valid_to ? slot.valid_to : 'End'}
                 </div>
               ` : ''}
