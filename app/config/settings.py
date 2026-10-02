@@ -48,7 +48,7 @@ class Settings(BaseSettings):
 
     # Email / Notification Provider
     email_provider: str = "dry_run"
-    notification_sender_email: str = "student@example.edu"
+    notification_sender_email: str = ""
     gmail_client_id: str | None = None
     gmail_client_secret: str | None = None
     gmail_redirect_uri: str = "http://localhost:8000/api/auth/gmail/callback"

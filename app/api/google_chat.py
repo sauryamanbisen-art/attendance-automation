@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import (
     DefaultSpaceUpdateRequest,
+    DiscoverDmRequest,
+    DiscoverDmResponse,
     GoogleChatAuthorizeResponse,
     GoogleChatCallbackResponse,
     GoogleChatStatusResponse,
@@ -18,6 +20,10 @@ from app.api.schemas import (
 from app.config import Settings, get_settings
 from app.database import get_db
 from app.notifications.google_chat.exceptions import (
+    GoogleChatApiError,
+    GoogleChatPermissionError,
+    GoogleChatRateLimitError,
+    GoogleChatRecipientError,
     OAuthAuthenticationError,
     OAuthConfigurationError,
 )
@@ -222,3 +228,111 @@ def update_default_space(
         "status": "updated",
         "default_space": new_default,
     }
+
+
+def _handle_discover_error(exc: Exception, identifier: str) -> None:
+    """Map domain exceptions from DM discovery to security-safe HTTP responses."""
+    safe_msg = redact_string(str(exc))
+    if isinstance(exc, OAuthConfigurationError):
+        logger.warning("Google Chat DM discovery failed: OAuth not configured (%s)", safe_msg)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google Chat OAuth is not configured. Please configure credentials in Settings or .env file.",
+        )
+    elif isinstance(exc, OAuthAuthenticationError):
+        logger.warning("Google Chat DM discovery failed: Authentication error (%s)", safe_msg)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google Chat OAuth is not connected or token expired. Please connect Google Chat in Settings.",
+        )
+    elif isinstance(exc, GoogleChatPermissionError):
+        logger.warning("Google Chat DM discovery failed: Permission/scope denied (%s)", safe_msg)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Google Chat permission denied. The connected account lacks the required OAuth scope "
+                "('https://www.googleapis.com/auth/chat.spaces.readonly'). Please reconnect Google Chat in Settings."
+            ),
+        )
+    elif isinstance(exc, GoogleChatRecipientError):
+        logger.info("Google Chat DM discovery recipient error for %s: %s", redact_string(identifier), safe_msg)
+        if "No direct message space exists" in safe_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=safe_msg,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=safe_msg,
+        )
+    elif isinstance(exc, GoogleChatRateLimitError):
+        logger.warning("Google Chat DM discovery rate limited: %s", safe_msg)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Google Chat API rate limit exceeded. Please try again shortly.",
+        )
+    elif isinstance(exc, GoogleChatApiError):
+        logger.error("Google Chat DM discovery API error: %s", safe_msg)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Google Chat API request failed: {safe_msg}",
+        )
+    elif isinstance(exc, KeyError):
+        logger.warning("Google Chat DM discovery target not found: %s", safe_msg)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=safe_msg,
+        )
+    elif isinstance(exc, ValueError):
+        logger.warning("Google Chat DM discovery validation error: %s", safe_msg)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=safe_msg,
+        )
+    else:
+        logger.error("Unexpected error during Google Chat DM discovery: %s", safe_msg, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while discovering the Google Chat space.",
+        )
+
+
+@router.post("/discover-dm", response_model=DiscoverDmResponse)
+def discover_direct_message(
+    payload: DiscoverDmRequest,
+    service: GoogleChatOAuthService = Depends(get_google_chat_service),
+    db: Session = Depends(get_db),
+) -> DiscoverDmResponse:
+    """Discover existing Google Chat DM space for a professor email.
+
+    Uses Google Chat API findDirectMessage and user's OAuth credentials.
+    If subject_code is provided or professor mapping exists, saves the space in the database.
+    """
+    try:
+        result = service.discover_professor_dm(
+            db=db,
+            professor_email=payload.professor_email,
+            subject_code=payload.subject_code,
+        )
+        return DiscoverDmResponse(**result)
+    except Exception as exc:
+        _handle_discover_error(exc, payload.professor_email)
+
+
+@router.post("/spaces/{subject_code}/discover", response_model=DiscoverDmResponse)
+def discover_subject_space(
+    subject_code: str,
+    professor_email: Optional[str] = Query(default=None, description="Optional override professor email"),
+    service: GoogleChatOAuthService = Depends(get_google_chat_service),
+    db: Session = Depends(get_db),
+) -> DiscoverDmResponse:
+    """Auto-discover and configure the Google Chat DM space for a subject's assigned professor."""
+    try:
+        result = service.discover_and_update_professor_space(
+            db=db,
+            subject_code=subject_code,
+            professor_email=professor_email,
+        )
+        return DiscoverDmResponse(**result)
+    except Exception as exc:
+        _handle_discover_error(exc, subject_code)

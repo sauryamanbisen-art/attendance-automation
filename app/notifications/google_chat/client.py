@@ -133,6 +133,89 @@ class GoogleChatClient:
                 f"Unexpected response from Google Chat API ({response.status_code}): {error_details}"
             )
 
+    def find_direct_message(self, user_email: str) -> dict[str, Any]:
+        """Find an existing direct message space with a user by email.
+
+        Calls official Google Chat REST API:
+        GET https://chat.googleapis.com/v1/spaces:findDirectMessage?name=users/{user_email}
+
+        Args:
+            user_email: The email address of the user (e.g. professor).
+
+        Returns:
+            Dictionary response from Google Chat API containing space details.
+
+        Raises:
+            OAuthAuthenticationError: If token is missing, expired, or invalid.
+            GoogleChatPermissionError: If caller lacks permissions or scope (403).
+            GoogleChatRecipientError: If user or DM space does not exist (404/400).
+            GoogleChatRateLimitError: If rate limit exceeded (429).
+            GoogleChatApiError: For unexpected HTTP errors or network timeouts.
+        """
+        cleaned_email = user_email.strip()
+        if not cleaned_email or "@" not in cleaned_email:
+            raise GoogleChatRecipientError(f"Invalid professor email address: '{user_email}'.")
+
+        user_resource = cleaned_email if cleaned_email.startswith("users/") else f"users/{cleaned_email}"
+        url = f"{self.base_url}/spaces:findDirectMessage"
+
+        token = self.oauth_client.get_valid_access_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        params = {"name": user_resource}
+
+        try:
+            client = self._get_http_client()
+            response = client.get(url, params=params, headers=headers)
+            return self._handle_dm_response(response, cleaned_email)
+        except httpx.TimeoutException as exc:
+            logger.error("Timeout connecting to Google Chat API while finding DM for %s", cleaned_email)
+            raise GoogleChatApiError("Network timeout while calling Google Chat API.") from exc
+        except httpx.RequestError as exc:
+            clean_err = redact_string(str(exc))
+            logger.error("Request error calling Google Chat API findDirectMessage: %s", clean_err)
+            raise GoogleChatApiError(f"Network error calling Google Chat API: {clean_err}") from exc
+
+    def _handle_dm_response(self, response: httpx.Response, user_email: str) -> dict[str, Any]:
+        """Inspect HTTP response for findDirectMessage and map status codes to domain exceptions."""
+        if response.status_code == 200:
+            return response.json()
+
+        error_details = self._extract_error_detail(response)
+
+        if response.status_code == 400:
+            raise GoogleChatRecipientError(
+                f"Cannot find Google Chat user for email '{user_email}': {error_details}"
+            )
+        elif response.status_code == 401:
+            raise OAuthAuthenticationError(
+                f"Google Chat API authentication failed (401 Unauthorized): {error_details}"
+            )
+        elif response.status_code == 403:
+            raise GoogleChatPermissionError(
+                f"Google Chat API permission denied or insufficient scope (403 Forbidden). "
+                f"Ensure 'https://www.googleapis.com/auth/chat.spaces.readonly' is authorized: {error_details}"
+            )
+        elif response.status_code == 404:
+            raise GoogleChatRecipientError(
+                f"No direct message space exists with '{user_email}'. "
+                f"A direct message conversation must be initiated first in Google Chat."
+            )
+        elif response.status_code == 429:
+            raise GoogleChatRateLimitError(
+                f"Google Chat API rate limit exceeded (429 RESOURCE_EXHAUSTED): {error_details}"
+            )
+        elif 500 <= response.status_code < 600:
+            raise GoogleChatApiError(
+                f"Google Chat API server error ({response.status_code}): {error_details}"
+            )
+        else:
+            raise GoogleChatApiError(
+                f"Unexpected response from Google Chat API ({response.status_code}): {error_details}"
+            )
+
     @staticmethod
     def _extract_error_detail(response: httpx.Response) -> str:
         """Extract error description safely from Google API JSON response."""

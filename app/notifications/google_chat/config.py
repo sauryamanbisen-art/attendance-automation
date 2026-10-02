@@ -8,6 +8,7 @@ from app.security.redaction import redact_string
 
 DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/chat.messages.create",
+    "https://www.googleapis.com/auth/chat.spaces.readonly",
 )
 DEFAULT_REDIRECT_URI = "http://localhost:8000/api/auth/google-chat/callback"
 

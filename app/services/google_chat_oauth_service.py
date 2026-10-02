@@ -13,6 +13,7 @@ import secrets
 import time
 from typing import Any, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -54,6 +55,7 @@ class GoogleChatOAuthService:
         token_storage: Optional[BaseTokenStorage] = None,
         oauth_client: Optional[GoogleChatOAuthClient] = None,
         state_manager: Optional[OAuthStateManager] = None,
+        api_client: Optional[Any] = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.state_manager = state_manager or _state_manager
@@ -73,6 +75,16 @@ class GoogleChatOAuthService:
             self.oauth_client = GoogleChatOAuthClient(
                 config=config,
                 token_storage=self.token_storage,
+            )
+
+        # API client for Google Chat REST operations (e.g. findDirectMessage)
+        if api_client is not None:
+            self.api_client = api_client
+        else:
+            from app.notifications.google_chat.client import GoogleChatClient
+
+            self.api_client = GoogleChatClient(
+                oauth_client=self.oauth_client,
             )
 
     def _build_config(self, default_space: Optional[str] = None) -> GoogleChatConfig:
@@ -266,3 +278,130 @@ class GoogleChatOAuthService:
             "is_configured": bool(subject.professor_mapping.google_chat_space),
             "is_active": subject.professor_mapping.is_active,
         }
+
+    def find_dm_space(self, professor_email: str) -> str:
+        """Find an existing Google Chat DM space for the professor via API.
+
+        Calls findDirectMessage on Google Chat API.
+
+        Args:
+            professor_email: The email address of the professor.
+
+        Returns:
+            Formatted space name (e.g. "spaces/AAAA1234567").
+
+        Raises:
+            ValueError: If email is missing or empty.
+            OAuthConfigurationError: If OAuth is not configured.
+            OAuthAuthenticationError: If OAuth credentials are not connected or valid.
+            GoogleChatPermissionError: If missing required scope (chat.spaces.readonly).
+            GoogleChatRecipientError: If professor cannot be found or DM does not exist.
+            GoogleChatRateLimitError: If rate limit exceeded.
+            GoogleChatApiError: If request fails.
+        """
+        cleaned_email = professor_email.strip()
+        if not cleaned_email:
+            raise ValueError("Professor email must be provided.")
+
+        data = self.api_client.find_direct_message(user_email=cleaned_email)
+        space_name = data.get("name")
+        if not space_name:
+            raise ValueError(f"Google Chat API returned unexpected response without space name for '{cleaned_email}'.")
+
+        from app.notifications.google_chat.client import GoogleChatClient
+
+        normalized_space = GoogleChatClient.normalize_space_name(space_name)
+        logger.info(
+            "Discovered Google Chat DM space %s for professor %s",
+            normalized_space,
+            redact_string(cleaned_email),
+        )
+        return normalized_space
+
+    def discover_professor_dm(
+        self,
+        db: Session,
+        professor_email: str,
+        subject_code: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Discover Google Chat DM space for a professor email and persist to database.
+
+        If subject_code is given, assigns the space to that subject's professor mapping.
+        Also automatically populates any other subject mappings sharing the same professor email.
+        """
+        cleaned_email = professor_email.strip()
+        if not cleaned_email:
+            raise ValueError("Professor email must be provided.")
+
+        target_subject = None
+        if subject_code:
+            target_subject = db.query(Subject).filter(Subject.code == subject_code).first()
+            if not target_subject:
+                raise KeyError(f"Subject '{subject_code}' not found.")
+            if not target_subject.professor_mapping:
+                raise ValueError(f"Subject '{subject_code}' does not have a professor assigned yet.")
+
+        space = self.find_dm_space(cleaned_email)
+
+        # Update all matching professor mappings in the database
+        matching_mappings = (
+            db.query(ProfessorMapping)
+            .filter(func.lower(ProfessorMapping.professor_email) == cleaned_email.lower())
+            .all()
+        )
+
+        updated_subjects: list[str] = []
+        for mapping in matching_mappings:
+            mapping.google_chat_space = space
+            if mapping.subject and mapping.subject.code not in updated_subjects:
+                updated_subjects.append(mapping.subject.code)
+
+        if target_subject:
+            target_subject.professor_mapping.google_chat_space = space
+            if target_subject.code not in updated_subjects:
+                updated_subjects.append(target_subject.code)
+
+        db.commit()
+
+        logger.info(
+            "Assigned discovered Google Chat space %s to %d subjects for %s",
+            space,
+            len(updated_subjects),
+            redact_string(cleaned_email),
+        )
+
+        return {
+            "space": space,
+            "professor_email": cleaned_email,
+            "subject_code": subject_code,
+            "updated_subjects": updated_subjects,
+            "message": f"Successfully discovered and saved Google Chat DM space '{space}' for {cleaned_email}.",
+        }
+
+    def discover_and_update_professor_space(
+        self,
+        db: Session,
+        subject_code: str,
+        professor_email: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Discover DM space for a subject's professor and update the mapping."""
+        subject = db.query(Subject).filter(Subject.code == subject_code).first()
+        if not subject:
+            raise KeyError(f"Subject '{subject_code}' not found.")
+
+        target_email = ""
+        if professor_email and professor_email.strip():
+            target_email = professor_email.strip()
+        elif subject.professor_mapping and subject.professor_mapping.professor_email:
+            target_email = subject.professor_mapping.professor_email.strip()
+
+        if not target_email:
+            raise ValueError(
+                f"Subject '{subject_code}' does not have a professor email configured to discover DM space."
+            )
+
+        return self.discover_professor_dm(
+            db=db,
+            professor_email=target_email,
+            subject_code=subject_code,
+        )
