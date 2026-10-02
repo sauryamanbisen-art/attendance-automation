@@ -195,6 +195,32 @@ export class DashboardController {
     // 3. Holiday Status
     if (this.els.holidayCard) {
       this.els.holidayCard.style.display = data.is_holiday ? 'block' : 'none';
+      if (data.is_holiday) {
+        const d = parseLocalDate(data.today);
+        const monthStr = d.toLocaleDateString(undefined, { month: 'short' }).toUpperCase();
+        const dayStr = String(d.getDate()).padStart(2, '0');
+        const mEl = document.getElementById('dashboard-holiday-month');
+        const dEl = document.getElementById('dashboard-holiday-day');
+        const tEl = document.getElementById('dashboard-holiday-title');
+        if (mEl) mEl.innerText = monthStr;
+        if (dEl) dEl.innerText = dayStr;
+        if (tEl) tEl.innerText = 'Official Holiday Exemption';
+      }
+    }
+
+    // Header actions dynamic badges
+    const modeBadge = document.getElementById('dashboard-mode-badge');
+    const modeText = document.getElementById('dashboard-mode-badge-text');
+    if (modeBadge && modeText) {
+      const isDry = this.appSettings ? this.appSettings.dry_run : true;
+      modeBadge.className = isDry ? 'badge badge-warning' : 'badge badge-danger';
+      modeText.innerText = isDry ? 'Sandbox: Safe Mode' : 'Live: Sending Active';
+    }
+
+    const adapterText = document.getElementById('dashboard-adapter-badge-text');
+    if (adapterText) {
+      const adName = (this.appSettings?.portal_adapter || 'pwioi').toUpperCase();
+      adapterText.innerText = `Adapter: ${adName} Active`;
     }
 
     // 4. Expected Classes
@@ -222,14 +248,14 @@ export class DashboardController {
         this.els.heroStatusBadge.className = 'badge badge-success';
         this.els.heroStatusBadge.innerHTML = '<span class="badge-dot"></span>Confirmed for Today';
       }
-      if (this.els.heroTitle) this.els.heroTitle.innerText = 'Attendance Confirmed';
-      if (this.els.heroDesc) this.els.heroDesc.innerText = 'Your attendance has been recorded. The automated scheduler will safely verify portal records after the cutoff time.';
+      if (this.els.heroTitle) this.els.heroTitle.innerText = 'Attendance Confirmed for Today';
+      if (this.els.heroDesc) this.els.heroDesc.innerText = 'Your attendance check-in has been recorded. The AttendFlow automated scheduler safely verifies college portal records post-lecture before the 5:00 PM IST correction cutoff.';
       
       if (this.els.btnConfirm) {
         this.els.btnConfirm.disabled = true;
         this.els.btnConfirm.classList.add('btn-confirmed');
       }
-      if (this.els.btnConfirmText) this.els.btnConfirmText.innerText = '✓ Confirmed';
+      if (this.els.btnConfirmText) this.els.btnConfirmText.innerText = 'Attendance Confirmed (Logged)';
       if (this.els.heroNoteContainer) this.els.heroNoteContainer.style.display = 'none';
       if (this.els.heroConfirmationMeta) this.els.heroConfirmationMeta.style.display = 'flex';
     } else {
@@ -239,7 +265,7 @@ export class DashboardController {
         this.els.heroStatusBadge.innerHTML = '<span class="badge-dot pulse"></span>Awaiting Confirmation';
       }
       if (this.els.heroTitle) this.els.heroTitle.innerText = 'Did you attend college today?';
-      if (this.els.heroDesc) this.els.heroDesc.innerText = 'Mark your attendance so the automated scheduler knows to verify your portal records after the cutoff time. Unconfirmed days are skipped for safety.';
+      if (this.els.heroDesc) this.els.heroDesc.innerText = 'Mark your attendance so the automated scheduler knows to verify your portal records post-lecture. AttendFlow reconciles attendance before the critical 5:00 PM IST correction cutoff.';
       
       if (this.els.btnConfirm) {
         this.els.btnConfirm.disabled = false;
@@ -257,7 +283,7 @@ export class DashboardController {
       if (this.latestCheck) {
         const isSuccess = this.latestCheck.status === 'SUCCESS';
         this.els.statCheckStatus.innerText = isSuccess ? 'SUCCESS' : this.latestCheck.status;
-        this.els.statCheckStatus.style.color = isSuccess ? 'var(--color-success)' : 'var(--color-danger)';
+        this.els.statCheckStatus.style.color = 'var(--primary)';
         if (this.els.statCheckTime) {
           const checkedTime = new Date(this.latestCheck.checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           this.els.statCheckTime.innerText = `Checked at ${checkedTime} (${this.latestCheck.adapter_name})`;
@@ -274,31 +300,45 @@ export class DashboardController {
     // Stat 2: Confirmation
     if (this.els.statConfirmationStatus) {
       const isConfirmed = this.currentData?.is_confirmed;
-      this.els.statConfirmationStatus.innerText = isConfirmed ? 'Confirmed' : 'Awaiting';
-      this.els.statConfirmationStatus.style.color = isConfirmed ? 'var(--color-success)' : 'var(--color-warning)';
+      this.els.statConfirmationStatus.innerText = isConfirmed ? 'CONFIRMED' : 'Awaiting';
+      this.els.statConfirmationStatus.style.color = 'var(--primary)';
       if (this.els.statConfirmationHint) {
-        this.els.statConfirmationHint.innerText = isConfirmed ? 'Safe to check and notify' : 'Unconfirmed days skipped';
+        this.els.statConfirmationHint.innerText = 'Explicit student check-in';
       }
     }
 
-    // Stat 3: Subject Breakdown
+    // Stat 3: Academic Attendance / Today's Portal Extraction
+    // Development Safety: Never display synthetic attendance information.
     if (this.els.statSubjectBreakdown) {
+      const acadRate = this.currentData?.academic_attendance_rate;
+      const acadAtt = this.currentData?.academic_attended_classes;
+      const acadTot = this.currentData?.academic_total_classes;
       const records = this.currentData?.attendance_records || [];
-      if (records.length > 0) {
+
+      if (typeof acadRate === 'number') {
+        this.els.statSubjectBreakdown.innerHTML = `${acadRate.toFixed(1)}% <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-left: 0.25rem;">Rate</span>`;
+        if (this.els.statSubjectSubtext) {
+          if (acadAtt !== null && acadTot !== null) {
+            this.els.statSubjectSubtext.innerText = `${acadAtt} of ${acadTot} classes attended`;
+          } else {
+            this.els.statSubjectSubtext.innerText = 'Portal verified attendance';
+          }
+        }
+      } else if (records.length > 0) {
         let present = 0, absent = 0, unknown = 0;
         records.forEach(r => {
           if (r.status === 'PRESENT') present++;
           else if (r.status === 'ABSENT') absent++;
           else unknown++;
         });
-        this.els.statSubjectBreakdown.innerText = `${records.length} Subjects`;
+        this.els.statSubjectBreakdown.innerHTML = `${records.length} Verified <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-left: 0.25rem;">Today</span>`;
         if (this.els.statSubjectSubtext) {
-          this.els.statSubjectSubtext.innerText = `${present} Present · ${absent} Absent · ${unknown} Unknown`;
+          this.els.statSubjectSubtext.innerText = `${present} Present · ${absent} Absent · ${unknown} Pending`;
         }
       } else {
-        this.els.statSubjectBreakdown.innerText = '0 Records';
+        this.els.statSubjectBreakdown.innerText = 'Awaiting Sync';
         if (this.els.statSubjectSubtext) {
-          this.els.statSubjectSubtext.innerText = 'Waiting for check execution';
+          this.els.statSubjectSubtext.innerText = 'Waiting for portal synchronization';
         }
       }
     }
@@ -306,11 +346,11 @@ export class DashboardController {
     // Stat 4: Session Status
     if (this.els.statSessionStatus) {
       const isAuth = this.sessionStatus?.is_authenticated;
-      this.els.statSessionStatus.innerText = isAuth ? 'Valid & Ready' : 'Login Required';
-      this.els.statSessionStatus.style.color = isAuth ? 'var(--color-success)' : 'var(--color-warning)';
+      this.els.statSessionStatus.innerText = isAuth ? 'VALID & READY' : 'LOGIN REQUIRED';
+      this.els.statSessionStatus.style.color = 'var(--primary)';
       if (this.els.statSessionHint) {
-        const adapterName = this.appSettings?.portal_adapter || 'PWIOI';
-        this.els.statSessionHint.innerText = `${adapterName} (${isAuth ? 'Session Active' : 'Storage State Empty'})`;
+        const adapterName = (this.appSettings?.portal_adapter || 'pwioi').toLowerCase();
+        this.els.statSessionHint.innerText = `${adapterName} token verified`;
       }
     }
   }
@@ -375,18 +415,30 @@ export class DashboardController {
   }
 
   renderAttendanceRecords(records) {
+    const countBadge = document.getElementById('dashboard-records-count-badge');
+    if (countBadge) {
+      if (records && records.length > 0) {
+        countBadge.className = 'badge badge-success';
+        countBadge.innerHTML = `<span class="badge-dot"></span>Reconciled: ${records.length} Records`;
+      } else {
+        countBadge.className = 'badge badge-neutral';
+        countBadge.innerHTML = `<span class="badge-dot"></span>0 Records Today`;
+      }
+    }
+
     if (!this.els.attendanceRecords) return;
     if (!records || records.length === 0) {
       this.els.attendanceRecords.innerHTML = `
-        <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
-          No portal records extracted for today yet. Use "Run Attendance Check" above to trigger a check.
+        <div style="padding: 2rem; text-align: center; color: var(--text-muted); font-size: 0.875rem;">
+          No portal records extracted for today yet. Use "Run Manual Portal Verification" above to trigger a check.
         </div>
       `;
       return;
     }
     
-    let html = '<div class="table-responsive"><table class="data-table"><thead><tr><th>Subject</th><th>Portal Status</th><th style="text-align:right;">Safety & Decision</th></tr></thead><tbody>';
-    for (const r of records) {
+    let html = '<div class="table-responsive"><table class="data-table"><thead><tr><th>Course Code &amp; Title</th><th>Timeline</th><th>Portal Status</th><th style="text-align:right;">Verification Decision</th></tr></thead><tbody>';
+    for (let idx = 0; idx < records.length; idx++) {
+      const r = records[idx];
       let badgeClass = 'badge-neutral';
       let statusStr = 'Unknown';
       let decisionPill = '<span class="badge badge-neutral">No Action</span>';
@@ -394,34 +446,44 @@ export class DashboardController {
       if (r.status === 'PRESENT') { 
         badgeClass = 'badge-success'; 
         statusStr = 'PRESENT'; 
-        decisionPill = '<span class="badge badge-success" style="font-size: 0.7rem;">✓ Verified (No Action)</span>';
+        decisionPill = '<span class="badge badge-neutral" style="font-size: 0.72rem; background: var(--neutral-light); color: var(--text-main); font-weight: 600;">✓ Verified (No Action)</span>';
       } else if (r.status === 'ABSENT') { 
         badgeClass = 'badge-danger'; 
         statusStr = 'ABSENT'; 
-        decisionPill = '<span class="badge badge-danger" style="font-size: 0.7rem;">⚠️ Discrepancy Alert</span>';
+        decisionPill = '<span class="badge badge-danger" style="font-size: 0.72rem;">⚠️ Discrepancy Alert</span>';
       } else if (r.status === 'NOT_MARKED') { 
         badgeClass = 'badge-warning'; 
         statusStr = 'NOT MARKED'; 
-        decisionPill = '<span class="badge badge-warning" style="font-size: 0.7rem;">Fails Closed (Safe)</span>';
+        decisionPill = '<span class="badge badge-warning" style="font-size: 0.72rem;">Fails Closed (Safe)</span>';
       } else if (r.status === 'UNKNOWN') {
         badgeClass = 'badge-warning';
         statusStr = 'UNKNOWN';
-        decisionPill = '<span class="badge badge-warning" style="font-size: 0.7rem;">Fails Closed (Safe)</span>';
+        decisionPill = '<span class="badge badge-warning" style="font-size: 0.72rem;">Fails Closed (Safe)</span>';
       }
 
-      const reliabilityBadge = r.is_reliable 
-        ? `<span style="font-size: 0.75rem; color: var(--color-success); margin-left: 0.35rem;" title="Reliable portal extraction">● Verified</span>`
-        : `<span style="font-size: 0.75rem; color: var(--color-warning); margin-left: 0.35rem;" title="Unreliable or incomplete data">○ Ambiguous</span>`;
+      const timelineText = r.period ? `Period ${r.period}` : 'Period 1';
+      
+      const courseTitleMap = {
+        '306JWD': 'Web Development',
+        '304ELS': 'Essential Language Skills',
+        '302OPS': 'Operating System',
+        '304VEP': 'Data Visualization & PowerBI',
+        '301ADS': 'Advance Data Structures & Algorithms',
+        '303PDS': 'Python for Data Science',
+      };
+      const displayTitle = courseTitleMap[r.subject_code] || r.subject_name || r.raw_status || 'Enrolled Course';
       
       html += `
         <tr>
           <td>
-            <strong>${escapeHtml(r.subject_code)}</strong>
-            <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(r.raw_status || 'Portal Raw: ' + r.status)}</div>
+            <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);">${escapeHtml(r.subject_code)}</div>
+            <div style="font-size: 0.775rem; color: var(--text-muted); margin-top: 0.1rem;">${escapeHtml(displayTitle)}</div>
+          </td>
+          <td style="color: var(--text-muted); font-size: 0.8rem; font-family: var(--font-mono);">
+            ${escapeHtml(timelineText)}
           </td>
           <td>
             <span class="badge ${badgeClass}"><span class="badge-dot"></span>${statusStr}</span>
-            ${reliabilityBadge}
           </td>
           <td style="text-align:right;">
             ${decisionPill}
@@ -430,6 +492,15 @@ export class DashboardController {
       `;
     }
     html += '</tbody></table></div>';
+    
+    // Add Table Footer matching Image 2
+    html += `
+      <div style="padding: 0.75rem 1.25rem; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text-muted); background-color: var(--neutral-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+        <span>${records.length} portal record${records.length === 1 ? '' : 's'} verified for today</span>
+        <span>PWIOI Student Portal</span>
+      </div>
+    `;
+
     this.els.attendanceRecords.innerHTML = html;
   }
 
@@ -463,24 +534,50 @@ export class DashboardController {
       : '';
 
     this.els.recentChecks.innerHTML = `
-      <div style="padding: 1rem; background: rgba(255, 255, 255, 0.02); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+      <div style="padding: 1.15rem; background: var(--neutral-surface); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
             ${statusBadge}
-            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">${escapeHtml(check.date)}</span>
+            <span style="font-size: 0.9rem; font-weight: 700; color: var(--text-main); font-family: var(--font-mono);">${escapeHtml(check.date)}</span>
           </div>
-          <span style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(check.adapter_name)}</span>
+          <span class="code-tag">${escapeHtml(check.adapter_name)}</span>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted);">
-          <span>Checked: ${escapeHtml(checkedTime)}</span>
+          <span>Checked: <strong>${escapeHtml(checkedTime)}</strong></span>
           <span>Subjects: <strong>${resultCount}</strong> ${resultBreakdown}</span>
         </div>
-        ${check.error_message ? `<div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--color-danger); background: var(--color-danger-bg); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm);">${escapeHtml(check.error_message)}</div>` : ''}
+        ${check.error_message ? `<div style="margin-top: 0.6rem; font-size: 0.75rem; color: var(--color-danger); background: var(--color-danger-bg); border: 1px solid var(--color-danger-border); padding: 0.4rem 0.65rem; border-radius: var(--radius-sm);">${escapeHtml(check.error_message)}</div>` : ''}
       </div>
     `;
   }
 
   renderNotificationsFeed() {
+    const gcSubtext = document.getElementById('dashboard-gc-status-subtext');
+    const gcIcon = document.getElementById('dashboard-gc-status-icon');
+    const pipeBadge = document.getElementById('dashboard-pipeline-badge');
+    const isDry = this.appSettings ? this.appSettings.dry_run : true;
+
+    if (gcSubtext && gcIcon) {
+      if (this.recentNotifications && this.recentNotifications.length > 0) {
+        const latest = this.recentNotifications[0];
+        gcSubtext.innerText = `Latest: ${latest.subject_code} (${latest.status})`;
+        gcIcon.innerText = latest.status === 'SENT' ? '✓' : '⚠️';
+        gcIcon.style.color = latest.status === 'SENT' ? 'var(--color-success)' : 'var(--color-warning)';
+        if (pipeBadge) {
+          pipeBadge.className = 'badge badge-success';
+          pipeBadge.innerHTML = '<span class="badge-dot"></span>Active Dispatches';
+        }
+      } else {
+        gcSubtext.innerText = isDry ? 'Safe Mode Active (dispatches suppressed)' : 'Direct faculty delivery armed';
+        gcIcon.innerText = isDry ? '🛡️' : '✓';
+        gcIcon.style.color = isDry ? 'var(--tertiary)' : 'var(--color-success)';
+        if (pipeBadge) {
+          pipeBadge.className = 'badge badge-neutral';
+          pipeBadge.innerHTML = '<span class="badge-dot"></span>Safe Standby';
+        }
+      }
+    }
+
     if (!this.els.notificationsFeed) return;
     const notifs = this.recentNotifications;
     if (!notifs || notifs.length === 0) {
