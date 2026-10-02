@@ -17,22 +17,157 @@ from app.services.timetable_service import TimetableService
 router = APIRouter(prefix="/history", tags=["history"])
 
 
+@router.get("/summary")
+def get_attendance_summary(db: Session = Depends(get_db)):
+    """Get separated academic attendance and automation verification log statistics.
+    
+    Invariants:
+    - Real academic attendance is retrieved from PortalAttendanceService.
+    - If unextracted from portal, academic metrics remain None with 'AWAITING_PORTAL_SYNC'.
+    - Automation check history is separated from academic attendance percentages.
+    """
+    from sqlalchemy import func
+    from app.core.enums import AttendanceStatus
+    from app.models.subject import VALID_CURRICULUM_CODES
+    from app.services.portal_attendance_service import PortalAttendanceService
+
+    # 1. Automation Check Execution Logs (filtered strictly to valid curriculum subjects)
+    valid_results_query = db.query(AttendanceResult).filter(AttendanceResult.subject_code.in_(VALID_CURRICULUM_CODES))
+    total_logs = valid_results_query.count()
+    present_logs = valid_results_query.filter(AttendanceResult.status == AttendanceStatus.PRESENT).count()
+    absent_logs = valid_results_query.filter(AttendanceResult.status == AttendanceStatus.ABSENT).count()
+    unknown_logs = valid_results_query.filter(AttendanceResult.status == AttendanceStatus.UNKNOWN).count()
+    marked_logs = present_logs + absent_logs
+    check_recon_rate = round((present_logs / marked_logs * 100), 1) if marked_logs > 0 else None
+
+    total_checks = db.query(AttendanceCheck).count()
+    latest_chk = db.query(AttendanceCheck).order_by(AttendanceCheck.id.desc()).first()
+
+    automation_logs = {
+        "total_checks": total_checks,
+        "total_log_records": total_logs,
+        "present_logs": present_logs,
+        "absent_logs": absent_logs,
+        "unknown_logs": unknown_logs,
+        "marked_logs": marked_logs,
+        "check_reconciliation_rate": check_recon_rate,
+        "flagged_events": absent_logs,
+        "latest_check": {
+            "id": latest_chk.id,
+            "date": str(latest_chk.check_date),
+            "status": latest_chk.status.value if hasattr(latest_chk.status, "value") else str(latest_chk.status),
+            "checked_at": latest_chk.checked_at.isoformat() if latest_chk.checked_at else None,
+        } if latest_chk else None,
+    }
+
+    # 2. Authoritative Academic Attendance from PWIOI Portal
+    portal_svc = PortalAttendanceService(db)
+    acad_summary = portal_svc.get_summary()
+
+    if acad_summary and acad_summary.sync_status == "SYNCED":
+        academic_attendance = {
+            "overall_rate": acad_summary.overall_rate,
+            "total_classes": acad_summary.total_classes,
+            "attended_classes": acad_summary.attended_classes,
+            "missed_classes": acad_summary.missed_classes,
+            "course_count": acad_summary.course_count,
+            "academic_term": acad_summary.academic_term,
+            "sync_status": "SYNCED",
+            "synced_at": acad_summary.synced_at.isoformat() if acad_summary.synced_at else None,
+            "courses": acad_summary.get_course_stats(),
+        }
+    else:
+        academic_attendance = {
+            "overall_rate": None,
+            "total_classes": None,
+            "attended_classes": None,
+            "missed_classes": None,
+            "course_count": None,
+            "academic_term": None,
+            "sync_status": "AWAITING_PORTAL_SYNC",
+            "synced_at": None,
+            "courses": {},
+        }
+
+    # 3. Automation per-subject check history breakdown (valid curriculum only)
+    subj_rows = (
+        db.query(AttendanceResult.subject_code, AttendanceResult.status, func.count(AttendanceResult.id))
+        .filter(AttendanceResult.subject_code.in_(VALID_CURRICULUM_CODES))
+        .group_by(AttendanceResult.subject_code, AttendanceResult.status)
+        .all()
+    )
+    subject_stats = {}
+    for code, st, count in subj_rows:
+        if code not in subject_stats:
+            subject_stats[code] = {"present": 0, "absent": 0, "unknown": 0, "total": 0, "marked": 0, "rate": None}
+        subject_stats[code]["total"] += count
+        if st == AttendanceStatus.PRESENT:
+            subject_stats[code]["present"] += count
+            subject_stats[code]["marked"] += count
+        elif st == AttendanceStatus.ABSENT:
+            subject_stats[code]["absent"] += count
+            subject_stats[code]["marked"] += count
+        else:
+            subject_stats[code]["unknown"] += count
+
+    for code, stats in subject_stats.items():
+        if stats["marked"] > 0:
+            stats["rate"] = round((stats["present"] / stats["marked"]) * 100, 1)
+
+    return {
+        "total_records": total_logs,
+        "present_count": present_logs,
+        "absent_count": absent_logs,
+        "unknown_count": unknown_logs,
+        "marked_count": marked_logs,
+        "attendance_rate": academic_attendance["overall_rate"],
+        "discrepancies_count": absent_logs,
+        "subject_stats": subject_stats,
+        "academic_attendance": academic_attendance,
+        "automation_logs": automation_logs,
+    }
+
+
+def sanitize_note(raw_notes: Optional[str]) -> Optional[str]:
+    """Ensure internal debug metadata or serialized Python dicts never leak into UI."""
+    if not raw_notes or not isinstance(raw_notes, str):
+        return None
+    trimmed = raw_notes.strip()
+    if trimmed.startswith("{") and trimmed.endswith("}"):
+        import ast
+        try:
+            val = ast.literal_eval(trimmed)
+            if isinstance(val, dict):
+                reason = val.get("reason") or val.get("note") or val.get("message")
+                if reason and isinstance(reason, str) and not reason.startswith("{"):
+                    return reason
+        except Exception:
+            pass
+        return None
+    if "retries_attempted" in trimmed or "{'date'" in trimmed:
+        return None
+    return trimmed
+
+
 @router.get("", response_model=HistoryResponse)
 def get_attendance_history(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     subject_code: Optional[str] = None,
+    status: Optional[str] = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     """Get historical attendance records with calendar and notification context."""
+    from app.models.subject import VALID_CURRICULUM_CODES
     
-    # Base query combining results, checks, subjects
+    # Base query combining results, checks, subjects - strictly filtered to valid curriculum
     query = (
         db.query(AttendanceResult, AttendanceCheck, Subject)
         .join(AttendanceCheck, AttendanceResult.check_id == AttendanceCheck.id)
         .outerjoin(Subject, AttendanceResult.subject_id == Subject.id)
+        .filter(AttendanceResult.subject_code.in_(VALID_CURRICULUM_CODES))
     )
 
     if start_date:
@@ -43,6 +178,14 @@ def get_attendance_history(
         
     if subject_code:
         query = query.filter(AttendanceResult.subject_code == subject_code)
+        
+    if status:
+        try:
+            from app.core.enums import AttendanceStatus
+            status_enum = AttendanceStatus(status)
+            query = query.filter(AttendanceResult.status == status_enum)
+        except ValueError:
+            pass
         
     # Get total count before pagination
     total = query.count()
@@ -117,7 +260,7 @@ def get_attendance_history(
             status=result.status,
             raw_status=result.raw_status,
             is_reliable=result.is_reliable,
-            notes=result.notes,
+            notes=sanitize_note(result.notes),
             is_holiday=cache["is_holiday"],
             is_cancelled=is_cancelled,
             is_extra=is_extra,
