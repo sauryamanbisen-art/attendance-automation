@@ -783,13 +783,140 @@ class PWIOIPortalAdapter(BasePortalAdapter):
             if not course_name:
                 course_name = card_text[:50].strip() or f"Course {course_code}"
 
+            # Extract course attendance rate from badge / card text
+            course_rate: Optional[float] = None
+            try:
+                rate_spans = card_elem.locator("span:has-text('%')")
+                if rate_spans.count() > 0:
+                    rate_text = rate_spans.first.inner_text().strip()
+                    m = re.search(r"(\d+(?:\.\d+)?)%", rate_text)
+                    if m:
+                        course_rate = float(m.group(1))
+                if course_rate is None:
+                    m = re.search(r"(\d+(?:\.\d+)?)%", card_text)
+                    if m:
+                        course_rate = float(m.group(1))
+            except Exception:
+                pass
+
+            attended_classes: Optional[int] = None
+            total_classes: Optional[int] = None
+            try:
+                m_classes = re.search(r"(\d+)\s*/\s*(\d+)", card_text)
+                if m_classes:
+                    attended_classes = int(m_classes.group(1))
+                    total_classes = int(m_classes.group(2))
+            except Exception:
+                pass
+
             courses.append({
                 "code": course_code,
                 "name": course_name,
                 "index": idx,
+                "attendance_rate": course_rate,
+                "attended_classes": attended_classes,
+                "total_classes": total_classes,
             })
 
         return courses
+
+    def extract_academic_summary(self, page: Any = None) -> dict[str, Any]:
+        """Extract authoritative academic attendance metrics directly from the PWIOI portal DOM.
+
+        Safety:
+        - Never returns synthetic, estimated, or fabricated percentages.
+        - If unauthenticated, unavailable, or unparseable, returns None fields with status 'AWAITING_PORTAL_SYNC'.
+        """
+        if page is None:
+            if not self._is_authenticated:
+                return {
+                    "sync_status": "AWAITING_PORTAL_SYNC",
+                    "overall_rate": None,
+                    "total_classes": None,
+                    "attended_classes": None,
+                    "missed_classes": None,
+                    "course_count": None,
+                    "courses": {},
+                }
+            try:
+                page = self.browser_manager.get_page(
+                    storage_state_path=self.config.storage_state_path
+                )
+                if "/dashboard/student/attendance" not in getattr(page, "url", ""):
+                    page.goto(self.config.attendance_url, wait_until=self.config.wait_until)
+            except Exception as e:
+                logger.warning("Could not open portal page to extract academic summary: %s", e)
+                return {
+                    "sync_status": "AWAITING_PORTAL_SYNC",
+                    "overall_rate": None,
+                    "total_classes": None,
+                    "attended_classes": None,
+                    "missed_classes": None,
+                    "course_count": None,
+                    "courses": {},
+                }
+
+        # Check for unauthenticated state
+        curr_url = getattr(page, "url", "")
+        if "accounts.google." in curr_url or "/auth/" in curr_url or "google.com/signin" in curr_url:
+            return {
+                "sync_status": "AWAITING_PORTAL_SYNC",
+                "overall_rate": None,
+                "total_classes": None,
+                "attended_classes": None,
+                "missed_classes": None,
+                "course_count": None,
+                "courses": {},
+            }
+
+        courses = self._enumerate_courses(page)
+
+        overall_rate: Optional[float] = None
+        attended_classes: Optional[int] = None
+        total_classes: Optional[int] = None
+        missed_classes: Optional[int] = None
+
+        try:
+            body_text = page.locator("body").inner_text()
+            m_overall = re.search(r"Overall\s+Attendance[^\d%]*(\d+(?:\.\d+)?)%", body_text, re.IGNORECASE)
+            if m_overall:
+                overall_rate = float(m_overall.group(1))
+
+            m_classes = re.search(r"(?:Classes\s+Attended|Attended\s+Classes)[^\d]*(\d+)\s*/\s*(\d+)", body_text, re.IGNORECASE)
+            if m_classes:
+                attended_classes = int(m_classes.group(1))
+                total_classes = int(m_classes.group(2))
+                missed_classes = max(0, total_classes - attended_classes)
+            else:
+                m_total = re.search(r"Total\s+Classes[^\d]*(\d+)", body_text, re.IGNORECASE)
+                m_att = re.search(r"(?:Attended|Present)\s+Classes[^\d]*(\d+)", body_text, re.IGNORECASE)
+                if m_total and m_att:
+                    total_classes = int(m_total.group(1))
+                    attended_classes = int(m_att.group(1))
+                    missed_classes = max(0, total_classes - attended_classes)
+        except Exception as exc:
+            logger.debug("Could not parse top-level summary metrics from page: %s", exc)
+
+        course_dict = {}
+        for c in courses:
+            course_dict[c["code"]] = {
+                "code": c["code"],
+                "name": c.get("name"),
+                "rate": c.get("attendance_rate"),
+                "attended_classes": c.get("attended_classes"),
+                "total_classes": c.get("total_classes"),
+            }
+
+        sync_status = "SYNCED" if (overall_rate is not None or len(courses) > 0) else "AWAITING_PORTAL_SYNC"
+        return {
+            "sync_status": sync_status,
+            "overall_rate": overall_rate,
+            "total_classes": total_classes,
+            "attended_classes": attended_classes,
+            "missed_classes": missed_classes,
+            "course_count": len(courses),
+            "courses": course_dict,
+        }
 
     def _sleep(self, seconds: float) -> None:
         """Configurable delay helper allowing fast execution in unit tests."""

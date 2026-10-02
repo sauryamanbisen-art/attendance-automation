@@ -122,8 +122,8 @@ class FakePortalAdapter(BasePortalAdapter):
             # Malformed data fails closed to UNKNOWN with reliability marked False
             return [
                 SubjectAttendance(
-                    subject_code="CS101",
-                    subject_name="Python Programming",
+                    subject_code="303PDS",
+                    subject_name="Python for Data Science",
                     status=AttendanceStatus.UNKNOWN,
                     raw_status="<<UNPARSED HTML ERROR: <div>malformed</td>>>",
                     is_reliable=False,
@@ -135,8 +135,8 @@ class FakePortalAdapter(BasePortalAdapter):
             # Ambiguous statuses fail closed to UNKNOWN
             return [
                 SubjectAttendance(
-                    subject_code="CS101",
-                    subject_name="Python Programming",
+                    subject_code="303PDS",
+                    subject_name="Python for Data Science",
                     status=self.normalize_status("TBD / EXEMPT?"),
                     raw_status="TBD / EXEMPT?",
                     is_reliable=False,
@@ -147,8 +147,8 @@ class FakePortalAdapter(BasePortalAdapter):
         if self.scenario == FakeScenario.PYTHON_PRESENT:
             return [
                 SubjectAttendance(
-                    subject_code="CS101",
-                    subject_name="Python Programming",
+                    subject_code="303PDS",
+                    subject_name="Python for Data Science",
                     status=AttendanceStatus.PRESENT,
                     raw_status="Present",
                     is_reliable=True,
@@ -158,8 +158,8 @@ class FakePortalAdapter(BasePortalAdapter):
         if self.scenario == FakeScenario.PYTHON_ABSENT:
             return [
                 SubjectAttendance(
-                    subject_code="CS101",
-                    subject_name="Python Programming",
+                    subject_code="303PDS",
+                    subject_name="Python for Data Science",
                     status=AttendanceStatus.ABSENT,
                     raw_status="Absent",
                     is_reliable=True,
@@ -169,8 +169,8 @@ class FakePortalAdapter(BasePortalAdapter):
         if self.scenario == FakeScenario.UNRELIABLE_ABSENT:
             return [
                 SubjectAttendance(
-                    subject_code="CS101",
-                    subject_name="Python Programming",
+                    subject_code="303PDS",
+                    subject_name="Python for Data Science",
                     status=AttendanceStatus.ABSENT,
                     raw_status="Absent (Unconfirmed/Unverified Portal Flag)",
                     is_reliable=False,
@@ -181,8 +181,8 @@ class FakePortalAdapter(BasePortalAdapter):
         if self.scenario == FakeScenario.PYTHON_UNKNOWN:
             return [
                 SubjectAttendance(
-                    subject_code="CS101",
-                    subject_name="Python Programming",
+                    subject_code="303PDS",
+                    subject_name="Python for Data Science",
                     status=AttendanceStatus.UNKNOWN,
                     raw_status="Pending Teacher Verification",
                     is_reliable=True,
@@ -192,22 +192,22 @@ class FakePortalAdapter(BasePortalAdapter):
         if self.scenario == FakeScenario.MIXED:
             return [
                 SubjectAttendance(
-                    subject_code="CS101",
-                    subject_name="Python Programming",
+                    subject_code="303PDS",
+                    subject_name="Python for Data Science",
                     status=AttendanceStatus.ABSENT,
                     raw_status="Absent",
                     is_reliable=True,
                 ),
                 SubjectAttendance(
-                    subject_code="CS102",
-                    subject_name="Data Structures",
+                    subject_code="301ADS",
+                    subject_name="Advance Data Structures and Algorithms",
                     status=AttendanceStatus.PRESENT,
                     raw_status="Present",
                     is_reliable=True,
                 ),
                 SubjectAttendance(
-                    subject_code="CS103",
-                    subject_name="Database Systems",
+                    subject_code="302OPS",
+                    subject_name="Operating System",
                     status=AttendanceStatus.UNKNOWN,
                     raw_status="Not Uploaded",
                     is_reliable=False,
