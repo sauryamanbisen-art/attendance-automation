@@ -15,6 +15,23 @@ if TYPE_CHECKING:
     from app.models.professor_mapping import ProfessorMapping
     from app.models.timetable import TimetableSlot
 
+# Authoritative curriculum course codes for PWIOI SOT25 Term 3
+VALID_CURRICULUM_CODES = {
+    "301ADS",  # Advance Data Structures and Algorithms
+    "302OPS",  # Operating System
+    "303PDS",  # Python for Data Science
+    "304ELS",  # Essential Language Skills
+    "304VEP",  # Data Visualization using Excel and Powerbi
+    "306JWD",  # OJT / Java Web Developer (Spring Boot)
+}
+
+
+def is_valid_curriculum_code(code: str) -> bool:
+    """Validate whether a course code belongs to the authoritative curriculum."""
+    if not code or not isinstance(code, str):
+        return False
+    return code.strip().upper() in VALID_CURRICULUM_CODES
+
 
 class Subject(Base):
     """Subject/course entity."""

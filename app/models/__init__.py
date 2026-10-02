@@ -6,6 +6,7 @@ from app.models.attendance_result import AttendanceResult
 from app.models.audit_event import AuditEvent
 from app.models.calendar import ClassException, Holiday
 from app.models.notification_event import NotificationEvent
+from app.models.portal_attendance import PortalAttendanceSummary
 from app.models.professor_mapping import ProfessorMapping
 from app.models.setting import Setting
 from app.models.subject import Subject
@@ -23,4 +24,5 @@ __all__ = [
     "TimetableSlot",
     "Holiday",
     "ClassException",
+    "PortalAttendanceSummary",
 ]
