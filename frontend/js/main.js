@@ -12,7 +12,7 @@ import { SettingsController } from './pages/settings.js';
 
 class AppRouter {
   constructor() {
-    this.routes = ['dashboard', 'timetable', 'calendar', 'subjects', 'attendance', 'settings'];
+    this.routes = ['dashboard', 'timetable', 'subjects', 'attendance', 'settings'];
     this.currentRoute = 'dashboard';
     this.controllers = {
       dashboard: new DashboardController(),
@@ -146,15 +146,45 @@ class AppRouter {
         ? `<span class="badge badge-warning" title="Dry Run is active - no emails will be sent"><span class="badge-dot pulse"></span>DRY RUN (Safe Mode)</span>`
         : `<span class="badge badge-danger" title="Live Mode - email sending enabled"><span class="badge-dot pulse"></span>LIVE (Sending Active)</span>`;
 
+      const checkIcon = `
+        <span style="width: 26px; height: 26px; border-radius: 6px; background-color: var(--primary); color: white; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800; margin-right: 0.15rem;">
+          ✓
+        </span>
+      `;
+
       const healthBadge = isOnline
-        ? `<span class="badge badge-success"><span class="badge-dot"></span>Online</span>`
-        : `<span class="badge badge-danger"><span class="badge-dot"></span>Offline</span>`;
+        ? `<span class="badge badge-success"><span class="badge-dot"></span>System: Online</span>`
+        : `<span class="badge badge-danger"><span class="badge-dot"></span>System: Offline</span>`;
 
       const sessionBadge = hasSession
-        ? `<span class="badge badge-success" title="Authenticated portal session found"><span class="badge-dot"></span>${adapter} Ready</span>`
+        ? `<span class="badge badge-neutral" title="Authenticated portal session found"><span class="badge-dot"></span>${adapter} Ready</span>`
         : `<span class="badge badge-neutral" title="No storage state found"><span class="badge-dot"></span>${adapter} Unauth</span>`;
 
-      this.els.headerStatus.innerHTML = `${dryRunBadge}${healthBadge}${sessionBadge}`;
+      this.els.headerStatus.innerHTML = `${checkIcon}${dryRunBadge}${healthBadge}${sessionBadge}`;
+
+      // Update Sidebar Footer metadata
+      const userNameEl = document.getElementById('sidebar-user-name');
+      const userEmailEl = document.getElementById('sidebar-user-email');
+      
+      const realStudentName = (session.status === 'fulfilled' && session.value) ? session.value.student_name : null;
+      const realStudentEmail = (settings.status === 'fulfilled' && settings.value.notification_sender_email && !settings.value.notification_sender_email.includes('example.edu'))
+        ? settings.value.notification_sender_email
+        : ((session.status === 'fulfilled' && session.value) ? session.value.student_email : null);
+
+      if (userNameEl) {
+        userNameEl.innerText = realStudentName || (hasSession ? 'PWIOI Student' : 'Portal Guest');
+      }
+      if (userEmailEl) {
+        userEmailEl.innerText = realStudentEmail || (hasSession ? 'Session Active' : 'Unauthenticated');
+        userEmailEl.title = realStudentEmail || 'Student Identity';
+      }
+
+      const protocolEl = document.getElementById('sidebar-protocol-status');
+      if (protocolEl) {
+        protocolEl.innerHTML = isDryRun 
+          ? '<span class="badge-dot" style="background-color: var(--color-warning);"></span>Safe Mode Active'
+          : '<span class="badge-dot" style="background-color: var(--color-danger);"></span>Live Mode Active';
+      }
     } catch (e) {
       console.debug('Could not load header status:', e);
     }
