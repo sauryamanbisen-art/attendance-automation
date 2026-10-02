@@ -50,7 +50,7 @@ def get_today_dashboard(db: Session = Depends(get_db)):
     confirmation_service = ConfirmationService(db)
     is_confirmed = confirmation_service.is_confirmed(today)
 
-    # 3. Attendance Records (from the most recent check today)
+    # 3. Attendance Records (from the most recent check today - strictly aligned with verified schedule)
     latest_check = (
         db.query(AttendanceCheck)
         .filter(AttendanceCheck.check_date == today)
@@ -59,9 +59,15 @@ def get_today_dashboard(db: Session = Depends(get_db)):
     )
 
     attendance_records_resp: List[SubjectResultItem] = []
-    if latest_check:
+    if latest_check and len(expected_classes) > 0:
+        from app.models.subject import is_valid_curriculum_code
+        expected_codes_set = {s.code for s in expected_classes}
         results = db.query(AttendanceResult).filter(AttendanceResult.check_id == latest_check.id).all()
         for r in results:
+            if not is_valid_curriculum_code(r.subject_code):
+                continue
+            if r.subject_code not in expected_codes_set:
+                continue
             attendance_records_resp.append(SubjectResultItem(
                 subject_code=r.subject_code,
                 status=r.status,
@@ -69,10 +75,23 @@ def get_today_dashboard(db: Session = Depends(get_db)):
                 is_reliable=r.is_reliable
             ))
 
+    # 4. Authoritative Academic Attendance from PWIOI Portal
+    from app.services.portal_attendance_service import PortalAttendanceService
+    portal_svc = PortalAttendanceService(db)
+    acad = portal_svc.get_summary()
+    acad_rate = acad.overall_rate if (acad and acad.sync_status == "SYNCED") else None
+    acad_att = acad.attended_classes if (acad and acad.sync_status == "SYNCED") else None
+    acad_tot = acad.total_classes if (acad and acad.sync_status == "SYNCED") else None
+    acad_status = acad.sync_status if acad else "AWAITING_PORTAL_SYNC"
+
     return DashboardResponse(
         today=today,
         is_holiday=is_holiday,
         is_confirmed=is_confirmed,
         expected_classes=expected_classes_resp,
         attendance_records=attendance_records_resp,
+        academic_attendance_rate=acad_rate,
+        academic_attended_classes=acad_att,
+        academic_total_classes=acad_tot,
+        academic_sync_status=acad_status,
     )
