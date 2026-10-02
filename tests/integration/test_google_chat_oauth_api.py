@@ -14,6 +14,15 @@ from app.config import Settings, get_settings
 from app.database import get_db
 from app.models.professor_mapping import ProfessorMapping
 from app.models.subject import Subject
+from app.notifications.google_chat.exceptions import (
+    GoogleChatApiError,
+    GoogleChatPermissionError,
+    GoogleChatRateLimitError,
+    GoogleChatRecipientError,
+    OAuthAuthenticationError,
+    OAuthConfigurationError,
+)
+from app.notifications.google_chat.fake import FakeGoogleChatClient
 from app.notifications.google_chat.oauth import InMemoryTokenStorage, OAuthToken
 from app.services.google_chat_oauth_service import (
     GoogleChatOAuthService,
@@ -483,4 +492,346 @@ def test_callback_browser_redirect_error(oauth_test_client: TestClient, guard_ne
     )
     assert res.status_code == 307
     assert res.headers.get("location") == "/#settings?oauth_error=true"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 7. DM Discovery Tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_discover_dm_success(
+    oauth_test_client: TestClient,
+    db_session: Session,
+    memory_token_storage: InMemoryTokenStorage,
+    configured_settings: Settings,
+    test_state_manager: OAuthStateManager,
+    guard_network,
+):
+    """POST /api/auth/google-chat/discover-dm discovers DM space and updates subject."""
+    # Seed subject in DB
+    sub = Subject(code="CS101", name="Computer Science")
+    db_session.add(sub)
+    db_session.flush()
+    mapping = ProfessorMapping(
+        subject_id=sub.id,
+        professor_name="Dr. Alan Turing",
+        professor_email="turing@university.edu",
+        google_chat_space=None,
+    )
+    db_session.add(mapping)
+    db_session.commit()
+
+    # Seed valid token
+    memory_token_storage.save_token(
+        OAuthToken(access_token="valid_tok", refresh_token="ref_tok", expires_at=time.time() + 3600)
+    )
+
+    fake_api = FakeGoogleChatClient(dm_spaces={"turing@university.edu": "spaces/DM_TURING_123"})
+    service = GoogleChatOAuthService(
+        settings=configured_settings,
+        token_storage=memory_token_storage,
+        state_manager=test_state_manager,
+        api_client=fake_api,
+    )
+    from app.api.google_chat import get_google_chat_service
+    app.dependency_overrides[get_google_chat_service] = lambda: service
+
+    res = oauth_test_client.post(
+        "/api/auth/google-chat/discover-dm",
+        json={"professor_email": "turing@university.edu", "subject_code": "CS101"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["space"] == "spaces/DM_TURING_123"
+    assert data["professor_email"] == "turing@university.edu"
+    assert data["subject_code"] == "CS101"
+    assert "CS101" in data["updated_subjects"]
+
+    # Verify DB update
+    db_session.refresh(mapping)
+    assert mapping.google_chat_space == "spaces/DM_TURING_123"
+
+
+def test_discover_dm_multiple_subjects_updated(
+    oauth_test_client: TestClient,
+    db_session: Session,
+    memory_token_storage: InMemoryTokenStorage,
+    configured_settings: Settings,
+    test_state_manager: OAuthStateManager,
+    guard_network,
+):
+    """When multiple subjects share the same professor email, all are updated."""
+    sub1 = Subject(code="MATH101", name="Calculus I")
+    sub2 = Subject(code="MATH102", name="Calculus II")
+    db_session.add_all([sub1, sub2])
+    db_session.flush()
+
+    m1 = ProfessorMapping(
+        subject_id=sub1.id,
+        professor_name="Prof. Euler",
+        professor_email="euler@university.edu",
+    )
+    m2 = ProfessorMapping(
+        subject_id=sub2.id,
+        professor_name="Prof. Euler",
+        professor_email="euler@university.edu",
+    )
+    db_session.add_all([m1, m2])
+    db_session.commit()
+
+    memory_token_storage.save_token(
+        OAuthToken(access_token="valid_tok", refresh_token="ref_tok", expires_at=time.time() + 3600)
+    )
+
+    fake_api = FakeGoogleChatClient(dm_spaces={"euler@university.edu": "spaces/DM_EULER_777"})
+    service = GoogleChatOAuthService(
+        settings=configured_settings,
+        token_storage=memory_token_storage,
+        state_manager=test_state_manager,
+        api_client=fake_api,
+    )
+    from app.api.google_chat import get_google_chat_service
+    app.dependency_overrides[get_google_chat_service] = lambda: service
+
+    res = oauth_test_client.post(
+        "/api/auth/google-chat/discover-dm",
+        json={"professor_email": "euler@university.edu"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["space"] == "spaces/DM_EULER_777"
+    assert "MATH101" in data["updated_subjects"]
+    assert "MATH102" in data["updated_subjects"]
+
+    db_session.refresh(m1)
+    db_session.refresh(m2)
+    assert m1.google_chat_space == "spaces/DM_EULER_777"
+    assert m2.google_chat_space == "spaces/DM_EULER_777"
+
+
+def test_discover_dm_not_connected_raises_401(
+    oauth_test_client: TestClient,
+    guard_network,
+):
+    """When no OAuth token exists, discover-dm returns 401 Unauthorized."""
+    res = oauth_test_client.post(
+        "/api/auth/google-chat/discover-dm",
+        json={"professor_email": "turing@university.edu"},
+    )
+    assert res.status_code == 401
+    assert "not connected" in res.json()["detail"].lower()
+
+
+def test_discover_dm_unconfigured_oauth_raises_400(
+    db_session: Session,
+    unconfigured_settings: Settings,
+    memory_token_storage: InMemoryTokenStorage,
+    guard_network,
+):
+    """When OAuth client credentials are not configured, discover-dm returns 400 Bad Request."""
+    service = GoogleChatOAuthService(
+        settings=unconfigured_settings,
+        token_storage=memory_token_storage,
+    )
+    from app.api.google_chat import get_google_chat_service
+    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: unconfigured_settings
+    app.dependency_overrides[get_google_chat_service] = lambda: service
+
+    with TestClient(app) as client:
+        res = client.post(
+            "/api/auth/google-chat/discover-dm",
+            json={"professor_email": "turing@university.edu"},
+        )
+        assert res.status_code == 400
+        assert "not configured" in res.json()["detail"].lower()
+
+    app.dependency_overrides.clear()
+
+
+def test_discover_dm_insufficient_scope_raises_403(
+    oauth_test_client: TestClient,
+    configured_settings: Settings,
+    memory_token_storage: InMemoryTokenStorage,
+    test_state_manager: OAuthStateManager,
+    guard_network,
+):
+    """When API returns 403 insufficient scope, endpoint returns 403 Forbidden with scope advice."""
+    mock_api = MagicMock()
+    mock_api.find_direct_message.side_effect = GoogleChatPermissionError(
+        "Google Chat API permission denied (403 Forbidden). Ensure chat.spaces.readonly is authorized."
+    )
+    service = GoogleChatOAuthService(
+        settings=configured_settings,
+        token_storage=memory_token_storage,
+        state_manager=test_state_manager,
+        api_client=mock_api,
+    )
+    from app.api.google_chat import get_google_chat_service
+    app.dependency_overrides[get_google_chat_service] = lambda: service
+
+    res = oauth_test_client.post(
+        "/api/auth/google-chat/discover-dm",
+        json={"professor_email": "turing@university.edu"},
+    )
+    assert res.status_code == 403
+    assert "chat.spaces.readonly" in res.json()["detail"]
+
+
+def test_discover_dm_not_found_raises_404(
+    oauth_test_client: TestClient,
+    configured_settings: Settings,
+    memory_token_storage: InMemoryTokenStorage,
+    test_state_manager: OAuthStateManager,
+    guard_network,
+):
+    """When no DM space exists with the professor, endpoint returns 404 Not Found."""
+    fake_api = FakeGoogleChatClient(dm_spaces={})  # Empty DM map
+    service = GoogleChatOAuthService(
+        settings=configured_settings,
+        token_storage=memory_token_storage,
+        state_manager=test_state_manager,
+        api_client=fake_api,
+    )
+    from app.api.google_chat import get_google_chat_service
+    app.dependency_overrides[get_google_chat_service] = lambda: service
+
+    res = oauth_test_client.post(
+        "/api/auth/google-chat/discover-dm",
+        json={"professor_email": "nonexistent@university.edu"},
+    )
+    assert res.status_code == 404
+    assert "No direct message space exists" in res.json()["detail"]
+
+
+def test_discover_dm_invalid_email_format(
+    oauth_test_client: TestClient,
+    guard_network,
+):
+    """Pydantic schema rejects invalid email formats."""
+    res = oauth_test_client.post(
+        "/api/auth/google-chat/discover-dm",
+        json={"professor_email": "invalid_email_format"},
+    )
+    assert res.status_code == 422
+
+
+def test_discover_dm_rate_limited_raises_429(
+    oauth_test_client: TestClient,
+    configured_settings: Settings,
+    memory_token_storage: InMemoryTokenStorage,
+    test_state_manager: OAuthStateManager,
+    guard_network,
+):
+    """When API returns 429 rate limit, endpoint returns 429 Too Many Requests."""
+    mock_api = MagicMock()
+    mock_api.find_direct_message.side_effect = GoogleChatRateLimitError("Rate limit exceeded")
+    service = GoogleChatOAuthService(
+        settings=configured_settings,
+        token_storage=memory_token_storage,
+        state_manager=test_state_manager,
+        api_client=mock_api,
+    )
+    from app.api.google_chat import get_google_chat_service
+    app.dependency_overrides[get_google_chat_service] = lambda: service
+
+    res = oauth_test_client.post(
+        "/api/auth/google-chat/discover-dm",
+        json={"professor_email": "turing@university.edu"},
+    )
+    assert res.status_code == 429
+    assert "rate limit exceeded" in res.json()["detail"].lower()
+
+
+def test_discover_dm_api_failure_raises_502(
+    oauth_test_client: TestClient,
+    configured_settings: Settings,
+    memory_token_storage: InMemoryTokenStorage,
+    test_state_manager: OAuthStateManager,
+    guard_network,
+):
+    """When upstream Google Chat API fails (5xx or timeout), endpoint returns 502 Bad Gateway."""
+    mock_api = MagicMock()
+    mock_api.find_direct_message.side_effect = GoogleChatApiError("Google Chat upstream 503 error")
+    service = GoogleChatOAuthService(
+        settings=configured_settings,
+        token_storage=memory_token_storage,
+        state_manager=test_state_manager,
+        api_client=mock_api,
+    )
+    from app.api.google_chat import get_google_chat_service
+    app.dependency_overrides[get_google_chat_service] = lambda: service
+
+    res = oauth_test_client.post(
+        "/api/auth/google-chat/discover-dm",
+        json={"professor_email": "turing@university.edu"},
+    )
+    assert res.status_code == 502
+    assert "request failed" in res.json()["detail"].lower()
+
+
+def test_discover_subject_space_endpoint_success(
+    oauth_test_client: TestClient,
+    db_session: Session,
+    configured_settings: Settings,
+    memory_token_storage: InMemoryTokenStorage,
+    test_state_manager: OAuthStateManager,
+    guard_network,
+):
+    """POST /api/auth/google-chat/spaces/{subject_code}/discover discovers space and updates mapping."""
+    sub = Subject(code="PHY201", name="Quantum Physics")
+    db_session.add(sub)
+    db_session.flush()
+    mapping = ProfessorMapping(
+        subject_id=sub.id,
+        professor_name="Dr. Feynman",
+        professor_email="feynman@university.edu",
+    )
+    db_session.add(mapping)
+    db_session.commit()
+
+    fake_api = FakeGoogleChatClient(dm_spaces={"feynman@university.edu": "spaces/DM_FEYNMAN_42"})
+    service = GoogleChatOAuthService(
+        settings=configured_settings,
+        token_storage=memory_token_storage,
+        state_manager=test_state_manager,
+        api_client=fake_api,
+    )
+    from app.api.google_chat import get_google_chat_service
+    app.dependency_overrides[get_google_chat_service] = lambda: service
+
+    res = oauth_test_client.post("/api/auth/google-chat/spaces/PHY201/discover")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["space"] == "spaces/DM_FEYNMAN_42"
+    assert data["professor_email"] == "feynman@university.edu"
+    assert "PHY201" in data["updated_subjects"]
+
+    db_session.refresh(mapping)
+    assert mapping.google_chat_space == "spaces/DM_FEYNMAN_42"
+
+
+def test_discover_subject_space_endpoint_not_found(
+    oauth_test_client: TestClient,
+    guard_network,
+):
+    """POST /api/auth/google-chat/spaces/UNKNOWN/discover returns 404."""
+    res = oauth_test_client.post("/api/auth/google-chat/spaces/UNKNOWN/discover")
+    assert res.status_code == 404
+    assert "not found" in res.json()["detail"].lower()
+
+
+def test_discover_subject_space_endpoint_no_professor(
+    oauth_test_client: TestClient,
+    db_session: Session,
+    guard_network,
+):
+    """POST /api/auth/google-chat/spaces/{code}/discover returns 400 when subject has no professor."""
+    sub = Subject(code="EMPTY101", name="Unassigned Course")
+    db_session.add(sub)
+    db_session.commit()
+
+    res = oauth_test_client.post("/api/auth/google-chat/spaces/EMPTY101/discover")
+    assert res.status_code == 400
+    assert "does not have a professor email" in res.json()["detail"]
 

@@ -17,8 +17,8 @@ def test_complete_decision_lifecycle(client: TestClient, db_session: Session) ->
     sub_res = client.post(
         "/api/subjects",
         json={
-            "code": "CS101",
-            "name": "Python Programming",
+            "code": "303PDS",
+            "name": "Python for Data Science",
             "professor_name": "Dr. Alan Turing",
             "professor_email": "turing@university.edu",
         },
@@ -56,7 +56,7 @@ def test_complete_decision_lifecycle(client: TestClient, db_session: Session) ->
     assert d2["professor_email"] == "turing@university.edu"
 
     # Step 5: Simulate recording notification in the database
-    subject = db_session.query(Subject).filter(Subject.code == "CS101").first()
+    subject = db_session.query(Subject).filter(Subject.code == "303PDS").first()
     assert subject is not None
     db_session.add(
         NotificationEvent(
@@ -106,8 +106,8 @@ def test_unreliable_absent_fails_closed_in_production_pipeline(
     client.post(
         "/api/subjects",
         json={
-            "code": "CS101",
-            "name": "Python Programming",
+            "code": "303PDS",
+            "name": "Python for Data Science",
             "professor_name": "Dr. Alan Turing",
             "professor_email": "turing@university.edu",
         },
@@ -136,7 +136,7 @@ def test_unreliable_absent_fails_closed_in_production_pipeline(
     # Verify results payload
     assert len(data["results"]) == 1
     subject_result = data["results"][0]
-    assert subject_result["subject_code"] == "CS101"
+    assert subject_result["subject_code"] == "303PDS"
     assert subject_result["status"] == "ABSENT"
     assert subject_result["is_reliable"] is False
 
@@ -152,7 +152,7 @@ def test_unreliable_absent_fails_closed_in_production_pipeline(
     # 4. Verify AttendanceResult persisted in DB has is_reliable=False
     db_result = (
         db_session.query(AttendanceResult)
-        .filter(AttendanceResult.subject_code == "CS101")
+        .filter(AttendanceResult.subject_code == "303PDS")
         .order_by(AttendanceResult.id.desc())
         .first()
     )

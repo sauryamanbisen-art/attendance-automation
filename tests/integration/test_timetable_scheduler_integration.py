@@ -63,9 +63,9 @@ class MockAdapter(BasePortalAdapter):
 
 @pytest.fixture
 def test_context(db_session: Session) -> dict:
-    subj1 = Subject(code="CS101", name="CS101")
-    subj2 = Subject(code="CS102", name="CS102")
-    subj3 = Subject(code="CS103", name="CS103") # Unscheduled
+    subj1 = Subject(code="301ADS", name="Advance Data Structures and Algorithms")
+    subj2 = Subject(code="302OPS", name="Operating System")
+    subj3 = Subject(code="303PDS", name="Python for Data Science")  # Unscheduled
     db_session.add_all([subj1, subj2, subj3])
     db_session.flush()
 
@@ -88,15 +88,15 @@ def test_missing_portal_record_evaluates_unknown(db_session: Session, test_conte
     
     target = date(2026, 9, 28) # Monday
     
-    # Schedule CS101 and CS102
+    # Schedule 301ADS and 302OPS
     db_session.add(TimetableSlot(subject_id=subj1.id, weekday=0, start_time=time(9), end_time=time(10)))
     db_session.add(TimetableSlot(subject_id=subj2.id, weekday=0, start_time=time(10), end_time=time(11)))
     db_session.add(AttendanceConfirmation(date=target))
     db_session.commit()
 
-    # Portal only returns CS101
+    # Portal only returns 301ADS
     adapter = MockAdapter([
-        SubjectAttendance("CS101", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("301ADS", AttendanceStatus.PRESENT, True),
     ])
 
     provider = MockNotificationProvider()
@@ -110,29 +110,31 @@ def test_missing_portal_record_evaluates_unknown(db_session: Session, test_conte
     
     # We should have 2 decisions: one from portal, one synthesized missing
     assert len(result.decisions) == 2
-    cs101_dec = next(d for d in result.decisions if d.subject_code == "CS101")
-    cs102_dec = next(d for d in result.decisions if d.subject_code == "CS102")
+    ads_dec = next(d for d in result.decisions if d.subject_code == "301ADS")
+    ops_dec = next(d for d in result.decisions if d.subject_code == "302OPS")
     
-    assert cs101_dec.status == AttendanceStatus.PRESENT
-    assert cs101_dec.action == DecisionAction.NO_ACTION
+    assert ads_dec.status == AttendanceStatus.PRESENT
+    assert ads_dec.action == DecisionAction.NO_ACTION
     
-    assert cs102_dec.status == AttendanceStatus.UNKNOWN
-    assert cs102_dec.is_reliable is False
-    assert cs102_dec.action == DecisionAction.NO_ACTION
+    assert ops_dec.status == AttendanceStatus.UNKNOWN
+    assert ops_dec.is_reliable is False
+    assert ops_dec.action == DecisionAction.NO_ACTION
 
 
 def test_unscheduled_subject_evaluates(db_session: Session, test_context: dict) -> None:
-    """Test that an unscheduled class returned by portal is still evaluated correctly."""
+    """Test that an unscheduled class returned by portal is excluded when schedule is configured."""
+    subj1 = test_context["subj1"]
     subj3 = test_context["subj3"]
     
     target = date(2026, 9, 28)
+    db_session.add(TimetableSlot(subject_id=subj1.id, weekday=0, start_time=time(9), end_time=time(10)))
     db_session.add(AttendanceConfirmation(date=target))
-    # Note: NO timetable slots added
     db_session.commit()
 
-    # Portal returns CS103 which has NO professor mapping and is NOT scheduled
+    # Portal returns 303PDS which is NOT scheduled for today
     adapter = MockAdapter([
-        SubjectAttendance("CS103", AttendanceStatus.ABSENT, True),
+        SubjectAttendance("301ADS", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("303PDS", AttendanceStatus.ABSENT, True),
     ])
 
     provider = MockNotificationProvider()
@@ -144,11 +146,10 @@ def test_unscheduled_subject_evaluates(db_session: Session, test_context: dict) 
         dry_run=False
     )
     
+    # 303PDS is unscheduled and thus excluded from reconciliation
     assert len(result.decisions) == 1
-    dec = result.decisions[0]
-    assert dec.subject_code == "CS103"
-    assert dec.status == AttendanceStatus.ABSENT
-    assert dec.action == DecisionAction.NO_ACTION # Missing professor mapping
+    assert result.decisions[0].subject_code == "301ADS"
+    assert result.decisions[0].status == AttendanceStatus.PRESENT
 
 
 def test_holiday_does_not_synthesize_missing(db_session: Session, test_context: dict) -> None:
@@ -216,7 +217,7 @@ def test_extra_class_synthesizes_missing(db_session: Session, test_context: dict
     )
     
     assert len(result.decisions) == 1
-    assert result.decisions[0].subject_code == "CS101"
+    assert result.decisions[0].subject_code == "301ADS"
     assert result.decisions[0].status == AttendanceStatus.UNKNOWN
 
 
@@ -237,8 +238,8 @@ def test_comprehensive_safety_rules(db_session: Session, test_context: dict) -> 
     
     # 1. Unconfirmed => SKIPPED
     adapter = MockAdapter([
-        SubjectAttendance("CS101", AttendanceStatus.PRESENT, True),
-        SubjectAttendance("CS102", AttendanceStatus.ABSENT, True),
+        SubjectAttendance("301ADS", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("302OPS", AttendanceStatus.ABSENT, True),
     ])
     provider = MockNotificationProvider()
     runner = DailyCheckRunner(db_session, notification_provider=provider)
@@ -254,20 +255,20 @@ def test_comprehensive_safety_rules(db_session: Session, test_context: dict) -> 
     assert res2.status == "SUCCESS"
     assert len(res2.decisions) == 2
     
-    cs101 = next(d for d in res2.decisions if d.subject_code == "CS101")
-    cs102 = next(d for d in res2.decisions if d.subject_code == "CS102")
+    ads = next(d for d in res2.decisions if d.subject_code == "301ADS")
+    ops = next(d for d in res2.decisions if d.subject_code == "302OPS")
     
-    assert cs101.status == AttendanceStatus.PRESENT
-    assert cs101.action == DecisionAction.NO_ACTION
+    assert ads.status == AttendanceStatus.PRESENT
+    assert ads.action == DecisionAction.NO_ACTION
     
-    assert cs102.status == AttendanceStatus.ABSENT
-    assert cs102.action == DecisionAction.ELIGIBLE_FOR_NOTIFICATION
+    assert ops.status == AttendanceStatus.ABSENT
+    assert ops.action == DecisionAction.ELIGIBLE_FOR_NOTIFICATION
     
     assert len(provider.sent_decisions) == 1
-    assert provider.sent_decisions[0].subject_code == "CS102"
+    assert provider.sent_decisions[0].subject_code == "302OPS"
     
     # 3. Duplicate prevention
     res3 = runner.run_daily_check(target_date=target, adapter=adapter, ignore_cutoff=True, dry_run=False)
-    cs102_dup = next(d for d in res3.decisions if d.subject_code == "CS102")
-    assert cs102_dup.action == DecisionAction.NO_ACTION
+    ops_dup = next(d for d in res3.decisions if d.subject_code == "302OPS")
+    assert ops_dup.action == DecisionAction.NO_ACTION
     assert len(provider.sent_decisions) == 1 # Still 1

@@ -216,8 +216,9 @@ def test_history_api(client: TestClient) -> None:
     assert len(res_date.json()["items"]) >= 1
     
     # Filter by subject
-    res_subj = client.get("/api/history?subject_code=CS101")
+    res_subj = client.get("/api/history?subject_code=303PDS")
     assert res_subj.status_code == 200
+    assert len(res_subj.json()["items"]) >= 1
     
     # Pagination
     res_page = client.get("/api/history?limit=1&offset=0")
