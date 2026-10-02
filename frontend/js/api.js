@@ -219,11 +219,15 @@ export const API = {
       if (params.start_date) query.append('start_date', params.start_date);
       if (params.end_date) query.append('end_date', params.end_date);
       if (params.subject_code) query.append('subject_code', params.subject_code);
+      if (params.status) query.append('status', params.status);
       if (params.limit) query.append('limit', params.limit);
       if (params.offset !== undefined) query.append('offset', params.offset);
       
       const qs = query.toString();
       return apiClient(`/history${qs ? '?' + qs : ''}`);
+    },
+    async getSummary() {
+      return apiClient('/history/summary');
     }
   },
   settings: {
@@ -267,10 +271,53 @@ export const API = {
       return apiClient(`/checks/notifications?limit=${limit}`);
     }
   },
+  googleChat: {
+    async getStatus() {
+      return apiClient('/auth/google-chat/status');
+    },
+    async getSpaces() {
+      return apiClient('/auth/google-chat/spaces');
+    },
+    async updateSpace(subjectCode, googleChatSpace) {
+      return apiClient(`/auth/google-chat/spaces/${encodeURIComponent(subjectCode)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ google_chat_space: googleChatSpace }),
+      });
+    },
+    async updateDefaultSpace(defaultSpace) {
+      return apiClient('/auth/google-chat/default-space', {
+        method: 'PUT',
+        body: JSON.stringify({ default_space: defaultSpace }),
+      });
+    },
+    async discoverDm(professorEmail, subjectCode = null) {
+      return apiClient('/auth/google-chat/discover-dm', {
+        method: 'POST',
+        body: JSON.stringify({ professor_email: professorEmail, subject_code: subjectCode }),
+      });
+    },
+    async discoverSubjectSpace(subjectCode, professorEmail = null) {
+      const url = professorEmail
+        ? `/auth/google-chat/spaces/${encodeURIComponent(subjectCode)}/discover?professor_email=${encodeURIComponent(professorEmail)}`
+        : `/auth/google-chat/spaces/${encodeURIComponent(subjectCode)}/discover`;
+      return apiClient(url, { method: 'POST' });
+    },
+  },
   health: {
     async get() {
       return apiClient('/health');
     }
+  },
+  portal: {
+    async getSummary() {
+      return apiClient('/portal/summary');
+    },
+    async sync() {
+      return apiClient('/portal/sync', { method: 'POST' });
+    }
   }
 };
 
+if (typeof window !== 'undefined') {
+  window.API = API;
+}

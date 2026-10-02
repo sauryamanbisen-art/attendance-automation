@@ -21,18 +21,30 @@ export class SettingsController {
       fLogLevel: document.getElementById('setting-log-level'),
       fTimezone: document.getElementById('setting-timezone'),
       fDryRun: document.getElementById('setting-dry-run'),
+      fDryRunBadge: document.getElementById('setting-dry-run-badge'),
+      fDryRunToggle: document.getElementById('setting-dry-run-toggle'),
       fPortalAdapter: document.getElementById('setting-portal-adapter'),
       fPortalHeadless: document.getElementById('setting-portal-headless'),
       fBrowserChannel: document.getElementById('setting-browser-channel'),
       fEmailProvider: document.getElementById('setting-email-provider'),
       fNotificationSender: document.getElementById('setting-notification-sender'),
+      fAutoCheck: document.getElementById('setting-auto-check'),
       
       // Session
       sessionStatusBadge: document.getElementById('session-status-badge'),
       sessionStatusText: document.getElementById('session-status-text'),
+      sessionHandshake: document.getElementById('setting-session-handshake'),
+      storageStateFilename: document.getElementById('setting-storage-state-filename'),
       btnClearSession: document.getElementById('btn-clear-session'),
+      
+      // Google Chat & Notifications
+      gcBadge: document.getElementById('setting-gc-badge'),
+      gcSpaceInput: document.getElementById('setting-gc-space-input'),
+      btnCopyGcSpace: document.getElementById('btn-copy-gc-space'),
+      btnTestPingGchat: document.getElementById('btn-test-ping-gchat'),
     };
 
+    this.providersData = null;
     this.bindEvents();
   }
 
@@ -43,6 +55,29 @@ export class SettingsController {
     
     if (this.els.btnClearSession) {
       this.els.btnClearSession.addEventListener('click', () => this.clearSession());
+    }
+
+    if (this.els.btnCopyGcSpace && this.els.gcSpaceInput) {
+      this.els.btnCopyGcSpace.addEventListener('click', () => {
+        const val = this.els.gcSpaceInput.value;
+        if (navigator.clipboard && val) {
+          navigator.clipboard.writeText(val);
+          window.dispatchEvent(new CustomEvent('app-alert', { detail: { message: 'Copied destination to clipboard.', type: 'info' } }));
+        }
+      });
+    }
+
+    if (this.els.btnTestPingGchat) {
+      this.els.btnTestPingGchat.addEventListener('click', () => {
+        const gc = this.providersData?.providers?.find(p => p.id === 'google_chat');
+        if (gc && gc.connected) {
+          window.dispatchEvent(new CustomEvent('app-alert', { detail: { message: 'Google Chat provider is connected and ready.', type: 'success' } }));
+        } else if (gc && gc.is_configured) {
+          window.dispatchEvent(new CustomEvent('app-alert', { detail: { message: 'Google Chat credentials are set in .env. Click "Connect" below to authenticate.', type: 'info' } }));
+        } else {
+          window.dispatchEvent(new CustomEvent('app-alert', { detail: { message: 'Safe Sandbox active: Notifications are simulated locally. Set Google Chat credentials in .env to connect.', type: 'info' } }));
+        }
+      });
     }
   }
 
@@ -62,8 +97,9 @@ export class SettingsController {
         API.notifications.getProviders()
       ]);
       
+      this.providersData = providers;
       this.renderSettings(settings);
-      this.renderSession(session);
+      this.renderSession(session, settings);
       this.renderProviders(providers);
       
       this.showState('content');
@@ -93,60 +129,90 @@ export class SettingsController {
   }
 
   renderSettings(settings) {
-    this.els.fAppName.innerText = settings.app_name;
-    this.els.fAppEnv.innerText = settings.app_env;
-    this.els.fLogLevel.innerText = settings.log_level;
-    this.els.fTimezone.innerText = settings.timezone;
-    this.els.fDryRun.innerHTML = settings.dry_run 
-      ? '<span class="badge badge-warning">Enabled (Safe Mode)</span>'
-      : '<span class="badge badge-danger">Disabled (Active Mode)</span>';
+    if (this.els.fAppName) this.els.fAppName.innerText = settings.app_name;
+    if (this.els.fAppEnv) this.els.fAppEnv.innerText = settings.app_env;
+    if (this.els.fLogLevel) this.els.fLogLevel.innerText = settings.log_level;
+    if (this.els.fTimezone) this.els.fTimezone.innerText = `${settings.timezone} (IST +05:30)`;
+    if (this.els.fDryRun) {
+      this.els.fDryRun.innerHTML = settings.dry_run 
+        ? '<span class="badge badge-warning">Enabled (Safe Mode)</span>'
+        : '<span class="badge badge-danger">Disabled (Active Mode)</span>';
+    }
+    if (this.els.fDryRunBadge) {
+      this.els.fDryRunBadge.className = settings.dry_run ? 'badge badge-warning' : 'badge badge-danger';
+      this.els.fDryRunBadge.innerText = settings.dry_run ? 'Safe Sandbox' : 'Live Active';
+    }
+    if (this.els.fDryRunToggle) {
+      this.els.fDryRunToggle.checked = !!settings.dry_run;
+    }
       
-    this.els.fPortalAdapter.innerText = settings.portal_adapter.toUpperCase();
-    this.els.fPortalHeadless.innerText = settings.portal_headless ? 'Headless' : 'Headed UI';
-    this.els.fBrowserChannel.innerText = settings.portal_browser_channel || 'Bundled Chromium';
-    this.els.fEmailProvider.innerText = settings.email_provider;
-    this.els.fNotificationSender.innerText = settings.notification_sender_email;
+    if (this.els.fPortalAdapter) this.els.fPortalAdapter.innerText = `${settings.portal_adapter.toUpperCase()} Adapter`;
+    if (this.els.fPortalHeadless) this.els.fPortalHeadless.innerText = settings.portal_headless ? 'Headless Chrome' : 'Headed Chrome UI';
+    if (this.els.fBrowserChannel) this.els.fBrowserChannel.innerText = settings.portal_browser_channel || 'Chromium Stable';
+    if (this.els.fEmailProvider) this.els.fEmailProvider.innerText = settings.email_provider.toUpperCase();
+    if (this.els.fNotificationSender) {
+      const email = (settings.notification_sender_email && !settings.notification_sender_email.includes('example.edu'))
+        ? settings.notification_sender_email
+        : ((this.session && this.session.student_email) ? this.session.student_email : 'Not configured (.env)');
+      this.els.fNotificationSender.innerText = email;
+    }
+    if (this.els.fAutoCheck) this.els.fAutoCheck.innerText = 'Post-lecture check (5:00 PM IST cutoff)';
   }
   
   renderProviders(data) {
     const container = document.getElementById('notification-providers-list');
     if (!container) return;
     
+    const gc = data.providers.find(p => p.id === 'google_chat');
+    if (this.els.gcBadge) {
+      if (gc && gc.connected) {
+        this.els.gcBadge.className = 'badge badge-success';
+        this.els.gcBadge.innerHTML = '<span class="badge-dot"></span>Connected';
+      } else if (gc && gc.is_configured) {
+        this.els.gcBadge.className = 'badge badge-warning';
+        this.els.gcBadge.innerText = 'Disconnected';
+      } else {
+        this.els.gcBadge.className = 'badge badge-neutral';
+        this.els.gcBadge.innerText = 'Not Configured';
+      }
+    }
+
+    if (this.els.gcSpaceInput) {
+      if (gc && gc.account_identifier) {
+        this.els.gcSpaceInput.value = gc.account_identifier;
+      } else if (gc && gc.is_configured) {
+        this.els.gcSpaceInput.value = 'OAuth Direct Message Routing';
+      } else {
+        this.els.gcSpaceInput.value = 'Configured via .env / OAuth';
+      }
+    }
+    
     container.innerHTML = '';
     
     data.providers.forEach(provider => {
       const card = document.createElement('div');
-      card.style.cssText = 'background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); padding: 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem;';
+      card.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0.75rem; background: var(--neutral-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); margin-top: 0.35rem;';
       
       let statusHtml = '';
       let actionHtml = '';
       
       if (!provider.is_configured) {
-        statusHtml = '<span class="badge badge-neutral">Not Configured</span>';
-        actionHtml = '<p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Missing Client ID/Secret in .env</p>';
+        statusHtml = '<span class="badge badge-neutral" style="font-size: 0.65rem; padding: 0.15rem 0.45rem;">Not Configured</span>';
+        actionHtml = '<span style="font-size: 0.72rem; color: var(--text-muted);">Set in .env</span>';
       } else if (provider.connected) {
-        statusHtml = '<span class="badge badge-success">Connected</span>';
-        actionHtml = `<button class="btn btn-danger btn-sm" onclick="window.App.controllers.settings.disconnectProvider('${escapeHtml(provider.id)}')">Disconnect</button>`;
+        statusHtml = '<span class="badge badge-success" style="font-size: 0.65rem; padding: 0.15rem 0.45rem;"><span class="badge-dot"></span>Connected</span>';
+        actionHtml = `<button class="btn btn-secondary btn-sm" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;" onclick="window.App.controllers.settings.disconnectProvider('${escapeHtml(provider.id)}')">Disconnect</button>`;
       } else {
-        statusHtml = '<span class="badge badge-warning">Disconnected</span>';
-        actionHtml = `<a class="btn btn-primary btn-sm" href="${escapeHtml(provider.auth_url)}">Connect</a>`;
-      }
-
-      let accountHtml = '';
-      if (provider.connected && provider.account_identifier) {
-        accountHtml = `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Account: <span style="color: var(--text-main); font-weight: 500;">${escapeHtml(provider.account_identifier)}</span></div>`;
+        statusHtml = '<span class="badge badge-warning" style="font-size: 0.65rem; padding: 0.15rem 0.45rem;">Disconnected</span>';
+        actionHtml = `<a class="btn btn-primary btn-sm" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;" href="${escapeHtml(provider.auth_url)}">Connect</a>`;
       }
       
       card.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-          <div>
-            <strong>${escapeHtml(provider.name)}</strong>
-            ${accountHtml}
-          </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <strong style="font-size: 0.785rem; color: var(--text-main);">${escapeHtml(provider.name)}</strong>
           ${statusHtml}
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <p style="font-size: 0.85rem; color: var(--text-subtle); margin: 0;">OAuth Authorization</p>
+        <div>
           ${actionHtml}
         </div>
       `;
@@ -169,16 +235,25 @@ export class SettingsController {
     }
   }
   
-  renderSession(session) {
+  renderSession(session, settings) {
+    this.session = session;
+    const filename = settings ? `${(settings.portal_adapter || 'pwioi').toLowerCase()}_session.json` : 'pwioi_session.json';
+    if (this.els.storageStateFilename) {
+      this.els.storageStateFilename.innerText = filename;
+    }
+
     if (session.is_authenticated) {
       this.els.sessionStatusBadge.className = 'badge badge-success';
       this.els.sessionStatusBadge.innerText = 'AUTHENTICATED';
-      this.els.sessionStatusText.innerText = 'Storage state file found. Session is valid.';
+      const userTag = session.student_name ? ` (User: ${session.student_name})` : '';
+      this.els.sessionStatusText.innerText = `Storage state file found (${filename}). Session is valid${userTag}.`;
+      if (this.els.sessionHandshake) this.els.sessionHandshake.innerText = session.student_email || 'Storage State Active';
       this.els.btnClearSession.disabled = false;
     } else {
       this.els.sessionStatusBadge.className = 'badge badge-warning';
       this.els.sessionStatusBadge.innerText = 'UNAUTHENTICATED';
-      this.els.sessionStatusText.innerText = 'No session file found. Authentication required via CLI/Browser.';
+      this.els.sessionStatusText.innerText = `No session file found (${filename}). Authentication required via CLI/Browser.`;
+      if (this.els.sessionHandshake) this.els.sessionHandshake.innerText = 'Session Required';
       this.els.btnClearSession.disabled = true;
     }
   }

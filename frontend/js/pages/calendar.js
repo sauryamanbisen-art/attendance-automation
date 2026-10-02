@@ -140,15 +140,15 @@ export class CalendarController {
     } else {
       let html = '<div class="table-responsive"><table class="data-table"><tbody>';
       for (const h of this.holidays) {
-        const d = parseLocalDate(h.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        const d = parseLocalDate(h.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
         html += `
           <tr>
             <td>
-              <strong>${escapeHtml(h.description)}</strong>
-              <div style="font-size:0.8rem; color:var(--text-muted);">${d}</div>
+              <strong style="color: var(--text-main); font-size: 0.9rem;">${escapeHtml(h.description)}</strong>
+              <div style="font-size: 0.775rem; color: var(--text-muted); margin-top: 0.15rem;">📅 ${d}</div>
             </td>
             <td style="text-align:right;">
-              <button class="btn-delete-holiday" data-id="${h.id}" style="background:none; border:none; color:var(--color-danger); cursor:pointer;" title="Delete">🗑️</button>
+              <button type="button" class="btn-icon-round btn-delete-holiday" data-id="${h.id}" style="width: 28px; height: 28px; font-size: 0.75rem; color: var(--color-danger); border-color: var(--tertiary-border);" title="Delete Holiday">🗑️</button>
             </td>
           </tr>
         `;
@@ -159,7 +159,7 @@ export class CalendarController {
 
     // Render Exceptions
     if (this.exceptions.length === 0) {
-      this.els.exceptionsContainer.innerHTML = `<div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem;">No class exceptions scheduled.</div>`;
+      this.els.exceptionsContainer.innerHTML = `<div style="padding: 2rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">No class exceptions scheduled.</div>`;
     } else {
       let html = '<div style="display:flex; flex-direction:column; gap:0.75rem; padding: 1.25rem;">';
       for (const exc of this.exceptions) {
@@ -167,32 +167,32 @@ export class CalendarController {
         const subjName = subject ? subject.code : 'Unknown';
         const isCancelled = exc.exception_type === 'CANCELLED';
         
-        const badgeClass = isCancelled ? 'badge-danger' : 'badge-info';
+        const badgeClass = isCancelled ? 'badge-danger' : 'badge-primary';
         const badgeText = isCancelled ? 'CANCELLED' : 'EXTRA CLASS';
         
         const d = parseLocalDate(exc.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
         
         html += `
-          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 1rem;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-              <div>
-                <strong style="color: var(--text-main); font-size: 0.95rem;">${escapeHtml(subjName)}</strong>
-                <span class="badge ${badgeClass}" style="margin-left: 0.5rem; font-size: 0.6rem;">${badgeText}</span>
+          <div style="background: var(--neutral-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.95rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.4rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <span class="code-tag">${escapeHtml(subjName)}</span>
+                <span class="badge ${badgeClass}" style="font-size: 0.65rem;">${badgeText}</span>
               </div>
-              <button class="btn-delete-exception" data-id="${exc.id}" style="background:none; border:none; color:var(--color-danger); cursor:pointer;" title="Delete">🗑️</button>
+              <button type="button" class="btn-icon-round btn-delete-exception" data-id="${exc.id}" style="width: 28px; height: 28px; font-size: 0.75rem; color: var(--color-danger); border-color: var(--tertiary-border);" title="Delete Exception">🗑️</button>
             </div>
             
-            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">
-              <span aria-hidden="true">📅</span> ${d}
+            <div style="font-size: 0.825rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.2rem;">
+              📅 ${d}
             </div>
             
             ${!isCancelled && exc.start_time && exc.end_time ? `
-              <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">
-                <span aria-hidden="true">⏱️</span> ${exc.start_time.slice(0, 5)} - ${exc.end_time.slice(0, 5)}
+              <div style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.2rem; font-family: var(--font-mono);">
+                ⏱ ${exc.start_time.slice(0, 5)} - ${exc.end_time.slice(0, 5)}
               </div>
             ` : ''}
             
-            ${exc.description ? `<div style="font-size: 0.8rem; color: var(--text-subtle); margin-top: 0.5rem; border-top: 1px dashed var(--border-subtle); padding-top: 0.5rem;">${escapeHtml(exc.description)}</div>` : ''}
+            ${exc.description ? `<div style="font-size: 0.775rem; color: var(--text-muted); margin-top: 0.4rem; border-top: 1px dashed var(--border-subtle); padding-top: 0.4rem;">${escapeHtml(exc.description)}</div>` : ''}
           </div>
         `;
       }
