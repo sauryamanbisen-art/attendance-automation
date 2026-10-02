@@ -39,11 +39,34 @@ def get_session_status() -> SessionStatusResponse:
     
     exists = os.path.exists(storage_state_path)
     
+    student_name = None
+    student_email = None
+    enrollment_id = None
+    
     if exists:
+        try:
+            import json
+            with open(storage_state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for origin in data.get("origins", []):
+                for item in origin.get("localStorage", []):
+                    if item.get("name") == "user":
+                        u = json.loads(item.get("value", "{}"))
+                        student_name = u.get("name")
+                        student_email = u.get("email")
+                    elif item.get("name") == "userDetails":
+                        ud = json.loads(item.get("value", "{}"))
+                        enrollment_id = ud.get("enrollmentId")
+        except Exception:
+            pass
+
         return SessionStatusResponse(
             is_authenticated=True,
             session_file_exists=True,
-            message="Authenticated session found."
+            message="Authenticated session found.",
+            student_name=student_name,
+            student_email=student_email,
+            enrollment_id=enrollment_id,
         )
     else:
         return SessionStatusResponse(

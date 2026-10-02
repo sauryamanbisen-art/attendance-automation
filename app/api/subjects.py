@@ -16,6 +16,11 @@ router = APIRouter(prefix="/subjects", tags=["Subjects & Mappings"])
 @router.get("", response_model=List[SubjectResponse])
 def list_subjects(db: Session = Depends(get_db)) -> List[SubjectResponse]:
     """List all configured subjects along with professor mappings."""
+    from app.services.portal_attendance_service import PortalAttendanceService
+    portal_svc = PortalAttendanceService(db)
+    acad = portal_svc.get_summary()
+    course_stats = acad.get_course_stats() if (acad and acad.sync_status == "SYNCED") else {}
+
     subjects = db.query(Subject).all()
     results = []
     for s in subjects:
@@ -23,6 +28,7 @@ def list_subjects(db: Session = Depends(get_db)) -> List[SubjectResponse]:
         prof_email = s.professor_mapping.professor_email if s.professor_mapping else None
         chat_space = s.professor_mapping.google_chat_space if s.professor_mapping else None
         is_active = s.professor_mapping.is_active if s.professor_mapping else None
+        c_stat = course_stats.get(s.code, {})
         results.append(
             SubjectResponse(
                 id=s.id,
@@ -32,6 +38,9 @@ def list_subjects(db: Session = Depends(get_db)) -> List[SubjectResponse]:
                 professor_email=prof_email,
                 google_chat_space=chat_space,
                 is_active=is_active,
+                academic_rate=c_stat.get("rate"),
+                attended_classes=c_stat.get("attended_classes"),
+                total_classes=c_stat.get("total_classes"),
             )
         )
     return results
