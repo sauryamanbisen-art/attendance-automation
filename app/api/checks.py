@@ -9,16 +9,19 @@ from sqlalchemy.orm import Session
 
 from app.adapters import get_portal_adapter
 from app.adapters.fake.adapter import FakeScenario
+from app.api.history import sanitize_note
 from app.api.schemas import CheckRunRequest, CheckRunResponse, DecisionItem, SubjectResultItem
 from app.config import get_settings
-from app.core.enums import AuditEventType, CheckStatus
+from app.core.enums import AttendanceStatus, AuditEventType, CheckStatus
 from app.database import get_db
 from app.models.attendance_check import AttendanceCheck
 from app.models.attendance_result import AttendanceResult
-from app.models.subject import Subject
+from app.models.subject import Subject, is_valid_curriculum_code
+from app.models.timetable import TimetableSlot
 from app.security.redaction import redact_string
 from app.services.audit import AuditService
 from app.services.decision_engine import DecisionEngine
+from app.services.timetable_service import TimetableService
 
 router = APIRouter(prefix="/checks", tags=["Attendance Checks"])
 
@@ -35,6 +38,38 @@ def run_attendance_check(
 
     target_date = payload.date or date.today()
     run_id = str(uuid.uuid4())
+
+    # Schedule resolution and timetable gating
+    timetable_service = TimetableService(db)
+    is_holiday = timetable_service.is_holiday(target_date)
+    has_configured_slots = db.query(TimetableSlot).count() > 0
+    expected_subjects = timetable_service.get_classes_for_date(target_date)
+
+    if has_configured_slots:
+        expected_subjects = [s for s in expected_subjects if is_valid_curriculum_code(s.code)]
+        expected_subject_codes = {s.code: s for s in expected_subjects}
+        if len(expected_subject_codes) == 0:
+            # When timetable is configured and 0 classes are scheduled for this date (holiday/weekend)
+            check_record = AttendanceCheck(
+                run_id=run_id,
+                check_date=target_date,
+                checked_at=datetime.now(timezone.utc),
+                adapter_name="scheduled_calendar",
+                status=CheckStatus.SUCCESS,
+                error_message=None,
+            )
+            db.add(check_record)
+            db.commit()
+            return CheckRunResponse(
+                run_id=run_id,
+                check_date=target_date,
+                adapter_name="scheduled_calendar",
+                status=CheckStatus.SUCCESS,
+                results=[],
+                decisions=[],
+            )
+    else:
+        expected_subject_codes = {s.code: s for s in expected_subjects}
 
     # Instantiate adapter via factory (respects scenario override or configured adapter)
     adapter = get_portal_adapter(
@@ -56,6 +91,7 @@ def run_attendance_check(
 
     results_items: List[SubjectResultItem] = []
     decision_items: List[DecisionItem] = []
+    processed_codes = set()
 
     try:
         adapter.validate_config()
@@ -63,9 +99,27 @@ def run_attendance_check(
         records = adapter.get_attendance_for_date(target_date)
 
         for rec in records:
+            # Gating Rule 1: Non-curriculum codes (e.g. CS101, ALL) are ignored
+            if has_configured_slots and not is_valid_curriculum_code(rec.subject_code):
+                continue
+
+            # Gating Rule 2: Unscheduled classes for this date are ignored
+            if has_configured_slots and rec.subject_code not in expected_subject_codes:
+                continue
+
+            processed_codes.add(rec.subject_code)
             # Find or link subject if exists
             subject = db.query(Subject).filter(Subject.code == rec.subject_code).first()
             subject_id = subject.id if subject else None
+
+            # Clean human-readable note only; never serialize raw debug dict
+            clean_note = None
+            if rec.metadata and isinstance(rec.metadata, dict):
+                raw_n = rec.metadata.get("note") or rec.metadata.get("description")
+                if raw_n and isinstance(raw_n, str) and not raw_n.strip().startswith("{"):
+                    clean_note = raw_n.strip()
+            elif isinstance(rec.metadata, str) and not rec.metadata.strip().startswith("{"):
+                clean_note = rec.metadata.strip()
 
             res_record = AttendanceResult(
                 check_id=check_record.id,
@@ -74,7 +128,7 @@ def run_attendance_check(
                 status=rec.status,
                 raw_status=rec.raw_status,
                 is_reliable=rec.is_reliable,
-                notes=str(rec.metadata) if rec.metadata else None,
+                notes=clean_note,
             )
             db.add(res_record)
             results_items.append(
@@ -107,6 +161,47 @@ def run_attendance_check(
                 )
             )
 
+        # Evaluate expected scheduled classes missing from portal response
+        for code, subject in expected_subject_codes.items():
+            if code not in processed_codes:
+                res_record = AttendanceResult(
+                    check_id=check_record.id,
+                    subject_id=subject.id,
+                    subject_code=code,
+                    status=AttendanceStatus.UNKNOWN,
+                    raw_status="MISSING_FROM_PORTAL",
+                    is_reliable=False,
+                    notes="Expected from timetable but missing from portal response",
+                )
+                db.add(res_record)
+                results_items.append(
+                    SubjectResultItem(
+                        subject_code=code,
+                        status=AttendanceStatus.UNKNOWN,
+                        raw_status="MISSING_FROM_PORTAL",
+                        is_reliable=False,
+                    )
+                )
+                dec = decision_engine.evaluate_subject_record(
+                    db=db,
+                    target_date=target_date,
+                    subject_code=code,
+                    status=AttendanceStatus.UNKNOWN,
+                    is_reliable=False,
+                )
+                decision_items.append(
+                    DecisionItem(
+                        action=dec.action,
+                        reason=dec.reason,
+                        subject_code=dec.subject_code,
+                        target_date=dec.target_date,
+                        is_confirmed=dec.is_confirmed,
+                        status=dec.status,
+                        is_reliable=dec.is_reliable,
+                        professor_email=dec.professor_email,
+                    )
+                )
+
         db.commit()
 
         # Audit log the check execution
@@ -119,7 +214,7 @@ def run_attendance_check(
             details={
                 "date": target_date.isoformat(),
                 "adapter": adapter_name,
-                "subjects_checked": len(records),
+                "subjects_checked": len(decision_items),
                 "decisions": [
                     {
                         "code": d.subject_code,
@@ -185,6 +280,8 @@ def get_latest_check(db: Session = Depends(get_db)):
 
     results = []
     for r in check.results:
+        if not is_valid_curriculum_code(r.subject_code):
+            continue
         subject_name = r.subject.name if r.subject else r.subject_code
         prof_name = (
             r.subject.professor_mapping.professor_name
@@ -198,7 +295,7 @@ def get_latest_check(db: Session = Depends(get_db)):
             "status": r.status.value,
             "raw_status": r.raw_status,
             "is_reliable": r.is_reliable,
-            "notes": r.notes,
+            "notes": sanitize_note(r.notes),
         })
 
     return {
