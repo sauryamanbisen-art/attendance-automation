@@ -86,6 +86,9 @@ class SubjectResponse(BaseModel):
     professor_email: Optional[str] = None
     google_chat_space: Optional[str] = None
     is_active: Optional[bool] = None
+    academic_rate: Optional[float] = None
+    attended_classes: Optional[int] = None
+    total_classes: Optional[int] = None
 
 
 class CheckRunRequest(BaseModel):
@@ -222,6 +225,36 @@ class DefaultSpaceUpdateRequest(BaseModel):
         description="Default space name (e.g. spaces/DEFAULT) or null to clear",
     )
 
+
+class DiscoverDmRequest(BaseModel):
+    """Request payload to discover a professor's Google Chat direct message space."""
+
+    professor_email: str = Field(
+        min_length=3,
+        max_length=255,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+        description="Valid professor email address to discover Google Chat DM space for",
+    )
+    subject_code: Optional[str] = Field(
+        default=None,
+        max_length=50,
+        description="Optional subject code to associate with discovered space",
+    )
+
+
+class DiscoverDmResponse(BaseModel):
+    """Response payload containing discovered Google Chat DM space."""
+
+    space: str = Field(description="Resolved Google Chat space resource name (e.g. spaces/AAAA123)")
+    professor_email: str = Field(description="Professor email address")
+    subject_code: Optional[str] = Field(default=None, description="Targeted subject code if provided")
+    updated_subjects: List[str] = Field(
+        default_factory=list,
+        description="List of subject codes whose mappings were updated with this space",
+    )
+    message: str = Field(description="User-facing summary message")
+
+
 from datetime import time as time_type
 from app.models.calendar import ExceptionType
 
@@ -279,6 +312,10 @@ class DashboardResponse(BaseModel):
     is_confirmed: bool
     expected_classes: List[SubjectResponse]
     attendance_records: List[SubjectResultItem]
+    academic_attendance_rate: Optional[float] = None
+    academic_attended_classes: Optional[int] = None
+    academic_total_classes: Optional[int] = None
+    academic_sync_status: Optional[str] = "AWAITING_PORTAL_SYNC"
 
 
 class HistoryItem(BaseModel):
@@ -332,4 +369,7 @@ class SessionStatusResponse(BaseModel):
     is_authenticated: bool
     session_file_exists: bool
     message: str
+    student_name: Optional[str] = None
+    student_email: Optional[str] = None
+    enrollment_id: Optional[str] = None
 

@@ -15,6 +15,7 @@ from app.api.subjects import router as subjects_router
 from app.api.timetable import router as timetable_router
 from app.api.notifications import router as notifications_router
 from app.api.gmail import router as gmail_router
+from app.api.portal import router as portal_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -31,5 +32,6 @@ api_router.include_router(settings_router)
 api_router.include_router(google_chat_router)
 api_router.include_router(notifications_router)
 api_router.include_router(gmail_router)
+api_router.include_router(portal_router)
 
 __all__ = ["api_router"]
