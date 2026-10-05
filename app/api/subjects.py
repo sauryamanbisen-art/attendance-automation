@@ -29,6 +29,9 @@ def list_subjects(db: Session = Depends(get_db)) -> List[SubjectResponse]:
         chat_space = s.professor_mapping.google_chat_space if s.professor_mapping else None
         is_active = s.professor_mapping.is_active if s.professor_mapping else None
         c_stat = course_stats.get(s.code, {})
+        attended_val = c_stat.get("attended_classes") if c_stat.get("attended_classes") is not None else c_stat.get("attended")
+        total_val = c_stat.get("total_classes") if c_stat.get("total_classes") is not None else c_stat.get("total")
+        rate_val = c_stat.get("rate") if c_stat.get("rate") is not None else c_stat.get("attendance_rate")
         results.append(
             SubjectResponse(
                 id=s.id,
@@ -38,9 +41,9 @@ def list_subjects(db: Session = Depends(get_db)) -> List[SubjectResponse]:
                 professor_email=prof_email,
                 google_chat_space=chat_space,
                 is_active=is_active,
-                academic_rate=c_stat.get("rate"),
-                attended_classes=c_stat.get("attended_classes"),
-                total_classes=c_stat.get("total_classes"),
+                academic_rate=rate_val,
+                attended_classes=attended_val,
+                total_classes=total_val,
             )
         )
     return results
