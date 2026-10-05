@@ -107,6 +107,10 @@ def run_attendance_check(
             if has_configured_slots and rec.subject_code not in expected_subject_codes:
                 continue
 
+            # Gating Rule 3: Deduplicate by subject code so 5 classes cannot become 6
+            if rec.subject_code in processed_codes:
+                continue
+
             processed_codes.add(rec.subject_code)
             # Find or link subject if exists
             subject = db.query(Subject).filter(Subject.code == rec.subject_code).first()
@@ -269,7 +273,7 @@ def run_attendance_check(
 
 @router.get("/latest")
 def get_latest_check(db: Session = Depends(get_db)):
-    """Retrieve the most recent attendance check run and its subject results."""
+    """Retrieve the most recent attendance check run strictly gated against verified schedule."""
     check = (
         db.query(AttendanceCheck)
         .order_by(AttendanceCheck.checked_at.desc())
@@ -278,10 +282,23 @@ def get_latest_check(db: Session = Depends(get_db)):
     if not check:
         return {"check": None}
 
+    has_configured_slots = db.query(TimetableSlot).count() > 0
+    scheduled_codes = None
+    if has_configured_slots:
+        scheduled_subjects = TimetableService(db).get_classes_for_date(check.check_date)
+        scheduled_codes = {s.code for s in scheduled_subjects if is_valid_curriculum_code(s.code)}
+
     results = []
+    seen_codes = set()
     for r in check.results:
         if not is_valid_curriculum_code(r.subject_code):
             continue
+        if scheduled_codes is not None and r.subject_code not in scheduled_codes:
+            continue
+        if r.subject_code in seen_codes:
+            continue
+        seen_codes.add(r.subject_code)
+
         subject_name = r.subject.name if r.subject else r.subject_code
         prof_name = (
             r.subject.professor_mapping.professor_name
@@ -310,6 +327,72 @@ def get_latest_check(db: Session = Depends(get_db)):
             "results": results,
         }
     }
+
+
+@router.get("/recent")
+def get_recent_checks(
+    limit: int = 5,
+    db: Session = Depends(get_db),
+):
+    """Retrieve recent attendance check runs strictly gated against verified schedule."""
+    checks = (
+        db.query(AttendanceCheck)
+        .order_by(AttendanceCheck.checked_at.desc())
+        .limit(limit)
+        .all()
+    )
+    timetable_svc = TimetableService(db)
+    has_configured_slots = db.query(TimetableSlot).count() > 0
+
+    date_scheduled_map = {}
+    data = []
+    for check in checks:
+        if has_configured_slots:
+            if check.check_date not in date_scheduled_map:
+                scheduled = timetable_svc.get_classes_for_date(check.check_date)
+                date_scheduled_map[check.check_date] = {s.code for s in scheduled if is_valid_curriculum_code(s.code)}
+            scheduled_codes = date_scheduled_map[check.check_date]
+        else:
+            scheduled_codes = None
+
+        results = []
+        seen_codes = set()
+        for r in check.results:
+            if not is_valid_curriculum_code(r.subject_code):
+                continue
+            if scheduled_codes is not None and r.subject_code not in scheduled_codes:
+                continue
+            if r.subject_code in seen_codes:
+                continue
+            seen_codes.add(r.subject_code)
+
+            subject_name = r.subject.name if r.subject else r.subject_code
+            prof_name = (
+                r.subject.professor_mapping.professor_name
+                if r.subject and r.subject.professor_mapping
+                else None
+            )
+            results.append({
+                "subject_code": r.subject_code,
+                "subject_name": subject_name,
+                "professor_name": prof_name,
+                "status": r.status.value,
+                "raw_status": r.raw_status,
+                "is_reliable": r.is_reliable,
+                "notes": sanitize_note(r.notes),
+            })
+
+        data.append({
+            "id": check.id,
+            "run_id": check.run_id,
+            "date": check.check_date.isoformat(),
+            "checked_at": check.checked_at.isoformat(),
+            "adapter_name": check.adapter_name,
+            "status": check.status.value,
+            "error_message": check.error_message,
+            "results": results,
+        })
+    return data
 
 
 @router.get("/notifications")
