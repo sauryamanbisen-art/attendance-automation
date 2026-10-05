@@ -129,22 +129,33 @@ def get_attendance_summary(db: Session = Depends(get_db)):
 
 
 def sanitize_note(raw_notes: Optional[str]) -> Optional[str]:
-    """Ensure internal debug metadata or serialized Python dicts never leak into UI."""
+    """Ensure internal debug metadata or serialized Python dicts never leak into UI.
+
+    Invariants:
+    - Never expose raw debug dicts like "{'date': ..., 'retries': ...}".
+    - If marked as having notes with raw debug info, normalize to clean user-facing 'Has Noted' or 'Has notes'.
+    - If clean human-readable text was provided, preserve it.
+    """
     if not raw_notes or not isinstance(raw_notes, str):
         return None
     trimmed = raw_notes.strip()
-    if trimmed.startswith("{") and trimmed.endswith("}"):
+    if trimmed.lower() in ("has noted", "has note", "has notes"):
+        return "Has Noted" if "noted" in trimmed.lower() else "Has notes"
+    if trimmed.lower().startswith("has note"):
+        return "Has Noted" if "noted" in trimmed.lower() else "Has notes"
+    if "{" in trimmed and "}" in trimmed:
         import ast
         try:
-            val = ast.literal_eval(trimmed)
+            dict_slice = trimmed[trimmed.index("{"):trimmed.rindex("}") + 1]
+            val = ast.literal_eval(dict_slice)
             if isinstance(val, dict):
                 reason = val.get("reason") or val.get("note") or val.get("message")
-                if reason and isinstance(reason, str) and not reason.startswith("{"):
-                    return reason
+                if reason and isinstance(reason, str) and not reason.strip().startswith("{") and "{" not in reason:
+                    return reason.strip()
         except Exception:
             pass
         return None
-    if "retries_attempted" in trimmed or "{'date'" in trimmed:
+    if "retries" in trimmed or "retries_attempted" in trimmed or "{'date'" in trimmed or "{" in trimmed:
         return None
     return trimmed
 
