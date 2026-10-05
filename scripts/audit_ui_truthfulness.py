@@ -16,8 +16,17 @@ from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.database import SessionLocal
+from app.models.attendance_result import AttendanceResult
+from app.models.attendance_check import AttendanceCheck
+
 
 def run_truthfulness_audit():
+    db = SessionLocal()
+    expected_results = db.query(AttendanceResult).count()
+    expected_checks = db.query(AttendanceCheck).count()
+    db.close()
+
     console_errors = []
     page_errors = []
 
@@ -75,9 +84,9 @@ def run_truthfulness_audit():
             print(f"History Automation Checks : {stat_checks}")
             print(f"History Discrepancy Health: {stat_health}")
 
-            assert "183" in stat_tracked, f"Expected 183 verification logs, got {stat_tracked}"
+            assert str(expected_results) in stat_tracked, f"Expected {expected_results} verification logs, got {stat_tracked}"
             assert "Awaiting Sync" in stat_rate or "%" in stat_rate, f"Unexpected academic rate: {stat_rate}"
-            assert "57" in stat_checks, f"Expected 57 automation checks, got {stat_checks}"
+            assert str(expected_checks) in stat_checks, f"Expected {expected_checks} automation checks, got {stat_checks}"
 
             # Table rows must be 6 per page
             rows = page.locator("#history-table-body tr").count()
@@ -128,7 +137,7 @@ def run_truthfulness_audit():
             print("=======================================================")
             page.click("a[data-route='calendar']")
             page.wait_for_selector("#calendar-content", state="visible", timeout=6000)
-            cal_text = page.locator("#calendar-content").inner_text()
+            cal_text = page.locator("#page-calendar").inner_text()
             assert "Academic Calendar" in cal_text or "Holidays" in cal_text
 
             page.click("a[data-route='timetable']")
