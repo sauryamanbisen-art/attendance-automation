@@ -12,7 +12,7 @@ import { SettingsController } from './pages/settings.js';
 
 class AppRouter {
   constructor() {
-    this.routes = ['dashboard', 'timetable', 'subjects', 'attendance', 'settings'];
+    this.routes = ['dashboard', 'timetable', 'calendar', 'subjects', 'attendance', 'settings'];
     this.currentRoute = 'dashboard';
     this.controllers = {
       dashboard: new DashboardController(),
