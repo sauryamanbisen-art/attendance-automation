@@ -119,9 +119,10 @@ def run_cleanup(db: Session):
     print(f"Cleaned raw dictionary notes from {len(raw_notes_results)} attendance records")
     db.commit()
 
-    # 5. Purge unscheduled attendance records
-    # - Python 303PDS on Wednesdays (e.g. 2026-09-23, 2026-09-30)
-    # - Weekend records (2026-09-20, 2026-09-26, 2026-09-27)
+    # 5. Purge unscheduled attendance records using authoritative TimetableService schedule
+    from app.services.timetable_service import TimetableService
+    timetable_service = TimetableService(db)
+
     all_results = (
         db.query(AttendanceResult, AttendanceCheck)
         .join(AttendanceCheck, AttendanceResult.check_id == AttendanceCheck.id)
@@ -130,48 +131,46 @@ def run_cleanup(db: Session):
     
     unscheduled_count = 0
     for res, chk in all_results:
-        chk_weekday = chk.check_date.weekday()
-        # Weekend check
-        if chk_weekday in (5, 6):
+        # Check against authoritative scheduled subjects for this specific date
+        scheduled_subjects = timetable_service.get_classes_for_date(chk.check_date)
+        scheduled_codes = {s.code for s in scheduled_subjects}
+        if res.subject_code not in scheduled_codes:
             db.delete(res)
             unscheduled_count += 1
-            continue
-        # Wednesday check: Python 303PDS is not scheduled
-        if chk_weekday == 2 and res.subject_code == "303PDS":
-            db.delete(res)
-            unscheduled_count += 1
-            continue
-        # Friday check: Python 303PDS is not scheduled
-        if chk_weekday == 4 and res.subject_code == "303PDS":
-            db.delete(res)
-            unscheduled_count += 1
-            continue
-        # Thursday check: 304ELS, 304VEP are not scheduled
-        if chk_weekday == 3 and res.subject_code in ("304ELS", "304VEP"):
-            db.delete(res)
-            unscheduled_count += 1
-            continue
             
-    print(f"Purged {unscheduled_count} unscheduled attendance records (e.g. unscheduled Python or weekend logs)")
+    print(f"Purged {unscheduled_count} unscheduled attendance records (classes not scheduled for that specific date)")
     db.commit()
 
-    # 6. Populate verified weekly timetable slots
-    existing_slots = db.query(TimetableSlot).count()
-    if existing_slots == 0:
-        for slot_def in WEEKLY_SCHEDULE:
-            subj = subject_map[slot_def["code"]]
-            slot = TimetableSlot(
-                subject_id=subj.id,
-                weekday=slot_def["weekday"],
-                start_time=slot_def["start"],
-                end_time=slot_def["end"],
-                period_name=slot_def["period"],
-            )
-            db.add(slot)
-        db.commit()
-        print(f"Populated {len(WEEKLY_SCHEDULE)} verified weekly timetable slots")
-    else:
-        print(f"Timetable slots already present ({existing_slots} slots)")
+    # 5b. Purge stale weekend checks and empty test check runs
+    all_checks = db.query(AttendanceCheck).all()
+    purged_checks = 0
+    for chk in all_checks:
+        chk_res_count = db.query(AttendanceResult).filter(AttendanceResult.check_id == chk.id).count()
+        # Purge checks on weekend dates (Saturday/Sunday) where college is not in session
+        if chk.check_date.weekday() in (5, 6):
+            db.delete(chk)
+            purged_checks += 1
+        elif chk_res_count == 0 and chk.status.value == "SUCCESS":
+            # Empty successful checks with 0 results are stale/dev test artifacts
+            db.delete(chk)
+            purged_checks += 1
+    print(f"Purged {purged_checks} stale weekend and empty test check runs")
+    db.commit()
+
+    # 6. Reconcile verified weekly timetable slots
+    db.query(TimetableSlot).delete()
+    for slot_def in WEEKLY_SCHEDULE:
+        subj = subject_map[slot_def["code"]]
+        slot = TimetableSlot(
+            subject_id=subj.id,
+            weekday=slot_def["weekday"],
+            start_time=slot_def["start"],
+            end_time=slot_def["end"],
+            period_name=slot_def["period"],
+        )
+        db.add(slot)
+    db.commit()
+    print(f"Populated all {len(WEEKLY_SCHEDULE)} verified weekly timetable slots (Monday to Friday)")
 
     # 7. Populate official college holidays
     existing_holiday = db.query(Holiday).filter(Holiday.date == date(2026, 10, 2)).first()
@@ -183,43 +182,34 @@ def run_cleanup(db: Session):
     else:
         print("Holiday 2026-10-02 already configured")
 
-    # 8. Seed authoritative PWIOI portal academic summary
-    portal_summary = db.query(PortalAttendanceSummary).first()
-    course_stats = {
-        "301ADS": {"attended": 28, "total": 30, "rate": 93.3},
-        "302OPS": {"attended": 27, "total": 29, "rate": 93.1},
-        "303PDS": {"attended": 24, "total": 25, "rate": 96.0},
-        "304ELS": {"attended": 21, "total": 22, "rate": 95.5},
-        "304VEP": {"attended": 19, "total": 21, "rate": 90.5},
-        "306JWD": {"attended": 28, "total": 30, "rate": 93.3},
-    }
-    
-    if not portal_summary:
-        portal_summary = PortalAttendanceSummary(
-            overall_rate=94.0,
-            total_classes=157,
-            attended_classes=147,
-            missed_classes=10,
-            course_count=6,
-            academic_term="Term 3",
-            sync_status="SYNCED",
-            courses_json=json.dumps(course_stats),
-            synced_at=datetime.now(timezone.utc),
-        )
-        db.add(portal_summary)
-        print("Created authoritative portal academic summary: 147 / 157 = 94.0%")
-    else:
-        portal_summary.overall_rate = 94.0
-        portal_summary.total_classes = 157
-        portal_summary.attended_classes = 147
-        portal_summary.missed_classes = 10
-        portal_summary.course_count = 6
-        portal_summary.academic_term = "Term 3"
-        portal_summary.sync_status = "SYNCED"
-        portal_summary.courses_json = json.dumps(course_stats)
-        portal_summary.synced_at = datetime.now(timezone.utc)
-        print("Updated authoritative portal academic summary: 147 / 157 = 94.0%")
-    db.commit()
+    # 8. Synchronize authoritative PWIOI portal academic summary via live extraction
+    from app.adapters.pwioi.adapter import PWIOIPortalAdapter
+    from app.adapters.pwioi.config import PWIOIPortalConfig
+    from app.services.portal_attendance_service import PortalAttendanceService
+
+    portal_svc = PortalAttendanceService(db)
+    config = PWIOIPortalConfig(storage_state_path="storage_state/pwioi_session.json", headless=True)
+    adapter = PWIOIPortalAdapter(config=config)
+    try:
+        extracted = adapter.extract_academic_summary()
+        if extracted.get("sync_status") == "SYNCED":
+            summary = portal_svc.update_summary(
+                overall_rate=extracted.get("overall_rate"),
+                total_classes=extracted.get("total_classes"),
+                attended_classes=extracted.get("attended_classes"),
+                missed_classes=extracted.get("missed_classes"),
+                course_count=extracted.get("course_count"),
+                course_stats=extracted.get("courses"),
+                sync_status="SYNCED",
+            )
+            print(f"Synchronized live portal attendance: {summary.overall_rate}% ({summary.attended_classes}/{summary.total_classes})")
+        else:
+            print("Portal session unauthenticated; setting status to AWAITING_PORTAL_SYNC (Fail-closed)")
+            portal_svc.get_or_create_awaiting_summary()
+    except Exception as e:
+        print(f"Portal live sync error: {e}. Preserving fail-closed state.")
+    finally:
+        adapter.close()
 
     print("=== Database Cleanup and Sync Completed Successfully ===")
 
