@@ -829,15 +829,19 @@ class PWIOIPortalAdapter(BasePortalAdapter):
         """
         if page is None:
             if not self._is_authenticated:
-                return {
-                    "sync_status": "AWAITING_PORTAL_SYNC",
-                    "overall_rate": None,
-                    "total_classes": None,
-                    "attended_classes": None,
-                    "missed_classes": None,
-                    "course_count": None,
-                    "courses": {},
-                }
+                try:
+                    self.authenticate()
+                except Exception as e:
+                    logger.warning("Could not authenticate with portal session: %s", e)
+                    return {
+                        "sync_status": "AWAITING_PORTAL_SYNC",
+                        "overall_rate": None,
+                        "total_classes": None,
+                        "attended_classes": None,
+                        "missed_classes": None,
+                        "course_count": None,
+                        "courses": {},
+                    }
             try:
                 page = self.browser_manager.get_page(
                     storage_state_path=self.config.storage_state_path
@@ -906,6 +910,19 @@ class PWIOIPortalAdapter(BasePortalAdapter):
                 "attended_classes": c.get("attended_classes"),
                 "total_classes": c.get("total_classes"),
             }
+
+        # Mathematical reconciliation:
+        # If top-level attended_classes or total_classes were not found in a single header,
+        # derive them authoritatively by summing the enrolled courses!
+        if (attended_classes is None or total_classes is None) and courses:
+            valid_totals = [c["total_classes"] for c in courses if isinstance(c.get("total_classes"), int)]
+            valid_attended = [c["attended_classes"] for c in courses if isinstance(c.get("attended_classes"), int)]
+            if len(valid_totals) == len(courses) and len(valid_attended) == len(courses):
+                total_classes = sum(valid_totals)
+                attended_classes = sum(valid_attended)
+                missed_classes = max(0, total_classes - attended_classes)
+                if overall_rate is None and total_classes > 0:
+                    overall_rate = round((attended_classes / total_classes) * 100, 1)
 
         sync_status = "SYNCED" if (overall_rate is not None or len(courses) > 0) else "AWAITING_PORTAL_SYNC"
         return {
