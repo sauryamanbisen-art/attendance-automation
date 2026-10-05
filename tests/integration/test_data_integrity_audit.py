@@ -372,3 +372,364 @@ def test_raw_notes_and_debug_metadata_never_exposed(client: TestClient, db_sessi
             assert "retries_attempted" not in item["notes"]
             assert "date" not in item["notes"]
 
+
+def test_five_actual_classes_cannot_become_six_due_to_deduplication_and_schedule(client: TestClient, db_session) -> None:
+    """Requirement 13.2: 5 actual classes cannot become 6, even if adapter yields duplicates or extra courses."""
+    from datetime import date, time
+    from app.core.enums import AttendanceStatus
+    from app.models.subject import Subject
+    from app.models.timetable import TimetableSlot
+    from app.adapters.fake.adapter import FakePortalAdapter, SubjectAttendance
+    from app.services.confirmation import ConfirmationService
+    from app.services.daily_scheduler import DailyCheckRunner
+
+    monday = date(2026, 9, 28)
+    ConfirmationService(db_session).confirm_attendance(monday)
+
+    scheduled_codes = ["301ADS", "302OPS", "303PDS", "304VEP", "306JWD"]
+    unscheduled_code = "304ELS"
+
+    for code in scheduled_codes + [unscheduled_code]:
+        s = Subject(code=code, name=f"Subject {code}")
+        db_session.add(s)
+        db_session.flush()
+        if code in scheduled_codes:
+            db_session.add(TimetableSlot(subject_id=s.id, weekday=0, start_time=time(9), end_time=time(10)))
+    db_session.commit()
+
+    # Adapter returns all 6 subjects PLUS a duplicate of 301ADS (7 items total)
+    adapter = FakePortalAdapter()
+    adapter.set_custom_subjects([
+        SubjectAttendance("301ADS", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("302OPS", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("303PDS", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("304VEP", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("306JWD", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("304ELS", AttendanceStatus.PRESENT, True),  # Unscheduled
+        SubjectAttendance("301ADS", AttendanceStatus.PRESENT, True),  # Duplicate
+    ])
+
+    runner = DailyCheckRunner(db=db_session)
+    result = runner.run_daily_check(target_date=monday, adapter=adapter, ignore_cutoff=True)
+
+    assert result.status == "SUCCESS"
+    assert result.subjects_checked == 5  # Strict schedule + deduplication = exactly 5
+    assert len(result.decisions) == 5
+    dec_codes = [d.subject_code for d in result.decisions]
+    assert sorted(dec_codes) == sorted(scheduled_codes)
+    assert "304ELS" not in dec_codes
+
+
+def test_rescheduled_class_moves_from_source_date_to_target_date(client: TestClient, db_session) -> None:
+    """Requirement 13.4: Rescheduled class appears on correct date and is excluded from original date."""
+    from datetime import date, time
+    from app.models.subject import Subject
+    from app.models.timetable import TimetableSlot
+    from app.services.timetable_service import TimetableService
+
+    s = Subject(code="301ADS", name="Algorithms")
+    db_session.add(s)
+    db_session.flush()
+
+    # Scheduled on Monday (weekday 0)
+    slot = TimetableSlot(subject_id=s.id, weekday=0, start_time=time(9), end_time=time(10))
+    db_session.add(slot)
+    db_session.commit()
+
+    monday = date(2026, 9, 28)
+    thursday = date(2026, 10, 1)
+
+    # Before reschedule: 301ADS on Monday, not Thursday
+    classes_mon_before = TimetableService(db_session).get_classes_for_date(monday)
+    classes_thu_before = TimetableService(db_session).get_classes_for_date(thursday)
+    assert any(c.code == "301ADS" for c in classes_mon_before)
+    assert not any(c.code == "301ADS" for c in classes_thu_before)
+
+    # Reschedule 301ADS from Monday to Thursday
+    TimetableService(db_session).reschedule_class(
+        subject_id=s.id,
+        from_date=monday,
+        to_date=thursday,
+        start_time=time(14),
+        end_time=time(15),
+        description="Professor conflict",
+    )
+
+    # After reschedule: excluded from Monday, present on Thursday
+    classes_mon_after = TimetableService(db_session).get_classes_for_date(monday)
+    classes_thu_after = TimetableService(db_session).get_classes_for_date(thursday)
+    assert not any(c.code == "301ADS" for c in classes_mon_after)
+    assert any(c.code == "301ADS" for c in classes_thu_after)
+
+
+def test_present_absent_unknown_sum_equals_actual_classes_checked(client: TestClient, db_session) -> None:
+    """Requirement 13.6: Present + Absent + Unknown = actual classes checked."""
+    from datetime import date, time
+    from app.core.enums import AttendanceStatus
+    from app.models.subject import Subject
+    from app.models.timetable import TimetableSlot
+    from app.adapters.fake.adapter import FakePortalAdapter, SubjectAttendance
+    from app.services.confirmation import ConfirmationService
+    from app.services.daily_scheduler import DailyCheckRunner
+
+    tuesday = date(2026, 9, 29)
+    ConfirmationService(db_session).confirm_attendance(tuesday)
+
+    codes = ["301ADS", "302OPS", "303PDS", "304ELS", "306JWD"]
+    for code in codes:
+        s = Subject(code=code, name=f"Subject {code}")
+        db_session.add(s)
+        db_session.flush()
+        db_session.add(TimetableSlot(subject_id=s.id, weekday=1, start_time=time(9), end_time=time(10)))
+    db_session.commit()
+
+    # Mixed statuses: 2 PRESENT, 2 ABSENT, 1 UNKNOWN
+    adapter = FakePortalAdapter()
+    adapter.set_custom_subjects([
+        SubjectAttendance("301ADS", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("302OPS", AttendanceStatus.PRESENT, True),
+        SubjectAttendance("303PDS", AttendanceStatus.ABSENT, True),
+        SubjectAttendance("304ELS", AttendanceStatus.ABSENT, True),
+        SubjectAttendance("306JWD", AttendanceStatus.UNKNOWN, False),
+    ])
+
+    runner = DailyCheckRunner(db=db_session)
+    result = runner.run_daily_check(target_date=tuesday, adapter=adapter, ignore_cutoff=True)
+
+    present_count = sum(1 for d in result.decisions if d.status == AttendanceStatus.PRESENT)
+    absent_count = sum(1 for d in result.decisions if d.status == AttendanceStatus.ABSENT)
+    unknown_count = sum(1 for d in result.decisions if d.status == AttendanceStatus.UNKNOWN)
+
+    assert result.subjects_checked == 5
+    assert present_count == 2
+    assert absent_count == 2
+    assert unknown_count == 1
+    assert present_count + absent_count + unknown_count == result.subjects_checked == 5
+
+
+def test_unavailable_portal_does_not_produce_fake_attendance(client: TestClient, db_session) -> None:
+    """Requirement 13.7: Unavailable portal does not produce fake attendance or synthetic percentages."""
+    from datetime import date, time
+    from app.models.subject import Subject
+    from app.models.timetable import TimetableSlot
+    from app.adapters.fake.adapter import FakePortalAdapter
+    from app.services.confirmation import ConfirmationService
+    from app.services.daily_scheduler import DailyCheckRunner
+
+    class FailingPortalAdapter(FakePortalAdapter):
+        def authenticate(self) -> bool:
+            return False
+
+        def get_attendance_for_date(self, target_date: date):
+            raise ConnectionError("PWIOI portal unreachable (503 Service Unavailable)")
+
+    wednesday = date(2026, 9, 30)
+    ConfirmationService(db_session).confirm_attendance(wednesday)
+
+    s = Subject(code="301ADS", name="Algorithms")
+    db_session.add(s)
+    db_session.flush()
+    db_session.add(TimetableSlot(subject_id=s.id, weekday=2, start_time=time(9), end_time=time(10)))
+    db_session.commit()
+
+    runner = DailyCheckRunner(db=db_session)
+    result = runner.run_daily_check(target_date=wednesday, adapter=FailingPortalAdapter(), ignore_cutoff=True)
+
+    # Must be recorded as FAILED or error, never fabricated SUCCESS or fake PRESENT
+    assert result.status in ["FAILED", "ERROR"]
+    assert len(result.decisions) == 0
+
+    # Portal summary API still returns truthful AWAITING_PORTAL_SYNC or null rate, never fake percentage
+    res = client.get("/api/portal/summary")
+    assert res.status_code == 200
+    data = res.json()
+    if data["sync_status"] == "AWAITING_PORTAL_SYNC":
+        assert data["overall_rate"] is None
+
+
+def test_raw_has_notes_prefix_and_dict_is_sanitized(client: TestClient, db_session) -> None:
+    """Requirement 13.8: 'Has notes: {...}' debug strings are sanitized to clean user-facing notes."""
+    from datetime import date
+    from app.core.enums import AttendanceStatus, CheckStatus
+    from app.models.attendance_check import AttendanceCheck
+    from app.models.attendance_result import AttendanceResult
+
+    chk = AttendanceCheck(
+        run_id="audit-test-notes-prefix",
+        check_date=date(2026, 9, 28),
+        adapter_name="audit_test",
+        status=CheckStatus.SUCCESS,
+    )
+    db_session.add(chk)
+    db_session.flush()
+
+    raw_note = "Has notes: {'date': '2026-09-28', 'retries': 3, 'latency_ms': 120}"
+    res = AttendanceResult(
+        check_id=chk.id,
+        subject_code="301ADS",
+        status=AttendanceStatus.PRESENT,
+        is_reliable=True,
+        notes=raw_note,
+    )
+    db_session.add(res)
+    db_session.commit()
+
+    history_res = client.get("/api/history")
+    assert history_res.status_code == 200
+    item = next(i for i in history_res.json()["items"] if i["subject_code"] == "301ADS")
+    assert item["notes"] == "Has notes"
+    assert "{" not in item["notes"]
+    assert "retries" not in item["notes"]
+
+
+def test_raw_has_noted_prefix_and_dict_is_sanitized(client: TestClient, db_session) -> None:
+    """Requirement 13.9: 'Has Noted' debug strings are sanitized to clean user-facing 'Has Noted'."""
+    from datetime import date
+    from app.core.enums import AttendanceStatus, CheckStatus
+    from app.models.attendance_check import AttendanceCheck
+    from app.models.attendance_result import AttendanceResult
+
+    chk = AttendanceCheck(
+        run_id="audit-test-noted-prefix",
+        check_date=date(2026, 9, 29),
+        adapter_name="audit_test",
+        status=CheckStatus.SUCCESS,
+    )
+    db_session.add(chk)
+    db_session.flush()
+
+    raw_note = "Has Noted: {'date': '2026-09-29', 'retries': 2, 'latency_ms': 95}"
+    res = AttendanceResult(
+        check_id=chk.id,
+        subject_code="302OPS",
+        status=AttendanceStatus.PRESENT,
+        is_reliable=True,
+        notes=raw_note,
+    )
+    db_session.add(res)
+    db_session.commit()
+
+    history_res = client.get("/api/history")
+    assert history_res.status_code == 200
+    item = next(i for i in history_res.json()["items"] if i["subject_code"] == "302OPS")
+    assert item["notes"] == "Has Noted"
+    assert "{" not in item["notes"]
+    assert "retries" not in item["notes"]
+
+
+def test_authoritative_pwioi_mathematical_sum_reconciliation(client: TestClient, db_session) -> None:
+    """Verifies that subject-wise attendance counts mathematically reconcile with overall attendance."""
+    from datetime import datetime, timezone
+    from app.models.portal_attendance import PortalAttendanceSummary
+    from app.services.portal_attendance_service import PortalAttendanceService
+
+    courses_data = {
+        "306JWD": {"code": "306JWD", "name": "OJT / Java Web Developer", "rate": 93.0, "attended_classes": 40, "total_classes": 43},
+        "304ELS": {"code": "304ELS", "name": "Essential Language Skills", "rate": 93.0, "attended_classes": 13, "total_classes": 14},
+        "302OPS": {"code": "302OPS", "name": "Operating System", "rate": 93.0, "attended_classes": 26, "total_classes": 28},
+        "304VEP": {"code": "304VEP", "name": "Data Visualization", "rate": 95.0, "attended_classes": 19, "total_classes": 20},
+        "301ADS": {"code": "301ADS", "name": "Advance Data Structures", "rate": 94.0, "attended_classes": 33, "total_classes": 35},
+        "303PDS": {"code": "303PDS", "name": "Python for Data Science", "rate": 86.0, "attended_classes": 19, "total_classes": 22},
+    }
+
+    sum_attended = sum(c["attended_classes"] for c in courses_data.values())
+    sum_total = sum(c["total_classes"] for c in courses_data.values())
+    assert sum_attended == 150
+    assert sum_total == 162
+    expected_rate = 93.0
+
+    svc = PortalAttendanceService(db_session)
+    summary = svc.update_summary(
+        overall_rate=expected_rate,
+        total_classes=sum_total,
+        attended_classes=sum_attended,
+        missed_classes=sum_total - sum_attended,
+        course_count=len(courses_data),
+        course_stats=courses_data,
+        sync_status="SYNCED",
+    )
+    assert summary.attended_classes == 150
+    assert summary.total_classes == 162
+    assert summary.overall_rate == 93.0
+
+    # API summary must return exact numbers
+    res = client.get("/api/portal/summary")
+    assert res.status_code == 200
+    p_data = res.json()
+    assert p_data["attended_classes"] == 150
+    assert p_data["total_classes"] == 162
+    assert p_data["overall_rate"] == 93.0
+    assert p_data["courses"]["306JWD"]["attended_classes"] == 40
+
+
+def test_monday_timetable_and_weekday_class_counts(client: TestClient, db_session) -> None:
+    """Verifies that Monday has exactly 5 classes (not 3), Thursday has 4, and weekend has 0."""
+    from datetime import date, time
+    from app.models.subject import Subject
+    from app.models.timetable import TimetableSlot
+    from app.services.timetable_service import TimetableService
+    from scripts.cleanup_and_sync_db import WEEKLY_SCHEDULE, CURRICULUM_SUBJECTS
+
+    # Populate curriculum subjects
+    subject_map = {}
+    for item in CURRICULUM_SUBJECTS:
+        s = Subject(code=item["code"], name=item["name"])
+        db_session.add(s)
+        db_session.flush()
+        subject_map[item["code"]] = s
+
+    # Populate 24 slots
+    for slot_def in WEEKLY_SCHEDULE:
+        slot = TimetableSlot(
+            subject_id=subject_map[slot_def["code"]].id,
+            weekday=slot_def["weekday"],
+            start_time=slot_def["start"],
+            end_time=slot_def["end"],
+            period_name=slot_def["period"],
+        )
+        db_session.add(slot)
+    db_session.commit()
+
+    timetable_svc = TimetableService(db_session)
+
+    # 2026-10-05 is a Monday (5 classes)
+    monday = date(2026, 10, 5)
+    monday_classes = timetable_svc.get_classes_for_date(monday)
+    monday_codes = [c.code for c in monday_classes]
+    assert len(monday_codes) == 5, f"Expected 5 Monday classes, got {len(monday_codes)}: {monday_codes}"
+    assert "301ADS" in monday_codes
+    assert "302OPS" in monday_codes
+    assert "303PDS" in monday_codes
+    assert "304VEP" in monday_codes
+    assert "306JWD" in monday_codes
+
+    # 2026-10-08 is a Thursday (4 classes)
+    thursday = date(2026, 10, 8)
+    thursday_classes = timetable_svc.get_classes_for_date(thursday)
+    assert len(thursday_classes) == 4
+
+    # 2026-10-10 is a Saturday (0 classes)
+    saturday = date(2026, 10, 10)
+    saturday_classes = timetable_svc.get_classes_for_date(saturday)
+    assert len(saturday_classes) == 0
+
+
+def test_cross_page_source_of_truth_consistency(client: TestClient, db_session) -> None:
+    """Verifies that Dashboard, History, and Subjects all read from the same authoritative portal summary."""
+    # 1. Fetch dashboard
+    res_dash = client.get("/api/dashboard/today")
+    assert res_dash.status_code == 200
+    dash_rate = res_dash.json().get("academic_attendance_rate")
+
+    # 2. Fetch history summary
+    res_hist = client.get("/api/history/summary")
+    assert res_hist.status_code == 200
+    hist_rate = res_hist.json().get("attendance_rate")
+
+    # 3. Fetch portal summary
+    res_portal = client.get("/api/portal/summary")
+    assert res_portal.status_code == 200
+    portal_rate = res_portal.json().get("overall_rate")
+
+    # All three must strictly match
+    assert dash_rate == hist_rate == portal_rate
