@@ -93,3 +93,40 @@ class TimetableService:
 
         today = datetime.now(tz).date()
         return self.get_classes_for_date(today)
+
+    def reschedule_class(
+        self,
+        subject_id: int,
+        from_date: date,
+        to_date: date,
+        start_time: Optional[time] = None,
+        end_time: Optional[time] = None,
+        description: Optional[str] = None,
+    ) -> tuple[ClassException, ClassException]:
+        """Reschedule a class from an original date to a new target date.
+
+        Creates a CANCELLED exception on the original date and an EXTRA exception
+        on the new date, ensuring calendar changes strictly override the recurring schedule.
+        """
+        cancel_desc = description or f"Rescheduled to {to_date.isoformat()}"
+        extra_desc = description or f"Rescheduled from {from_date.isoformat()}"
+
+        cancelled = ClassException(
+            subject_id=subject_id,
+            date=from_date,
+            exception_type=ExceptionType.CANCELLED,
+            description=cancel_desc,
+        )
+        extra = ClassException(
+            subject_id=subject_id,
+            date=to_date,
+            exception_type=ExceptionType.EXTRA,
+            start_time=start_time,
+            end_time=end_time,
+            description=extra_desc,
+        )
+        self.db.add_all([cancelled, extra])
+        self.db.commit()
+        self.db.refresh(cancelled)
+        self.db.refresh(extra)
+        return (cancelled, extra)
