@@ -57,7 +57,20 @@ class PlaywrightBrowserManager:
         if self.browser_channel:
             launch_kwargs["channel"] = self.browser_channel
 
-        self._browser = self._playwright.chromium.launch(**launch_kwargs)
+        try:
+            self._browser = self._playwright.chromium.launch(**launch_kwargs)
+        except Exception as e:
+            if "Executable doesn't exist" in str(e) and "channel" not in launch_kwargs:
+                import os
+                import sys
+
+                if sys.platform == "darwin" and os.path.exists("/Applications/Google Chrome.app"):
+                    launch_kwargs["channel"] = "chrome"
+                    self._browser = self._playwright.chromium.launch(**launch_kwargs)
+                else:
+                    raise
+            else:
+                raise
         return self._browser
 
     def get_context(self, storage_state_path: Optional[str] = None) -> Any:
