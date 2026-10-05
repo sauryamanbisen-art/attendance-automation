@@ -55,6 +55,15 @@
           </svg>
           <span>Timetable</span>
         </a>
+        <a class="nav-item" id="tab-calendar" data-route="calendar" role="tab" aria-selected="false" href="#calendar">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span>Calendar &amp; Exceptions</span>
+        </a>
         <a class="nav-item" id="tab-subjects" data-route="subjects" role="tab" aria-selected="false" href="#subjects">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -227,7 +236,7 @@
                   
                   <div class="hero-action-container">
                     <div id="hero-note-container" class="hero-note-wrapper">
-                      <input type="text" id="input-confirm-note" class="form-input" placeholder="Add optional note (e.g. Attended CS101 lab)..." />
+                      <input type="text" id="input-confirm-note" class="form-input" placeholder="Add optional note (e.g. Attended 301ADS lecture)..." />
                     </div>
                     
                     <div id="hero-confirmation-meta" class="hero-confirmation-meta" style="display: none;">
@@ -274,7 +283,7 @@
                 </div>
                 <div class="stat-bottom-row">
                   <span>Engine Status</span>
-                  <span class="stat-bottom-status">● Healthy</span>
+                  <span class="stat-bottom-status" id="stat-engine-status">● Healthy</span>
                 </div>
               </div>
 
@@ -294,7 +303,7 @@
                 </div>
                 <div class="stat-bottom-row">
                   <span>Trigger Logic</span>
-                  <span class="stat-bottom-status">Safe to verify</span>
+                  <span class="stat-bottom-status" id="stat-confirmation-trigger">Safe to verify</span>
                 </div>
               </div>
 
@@ -310,12 +319,12 @@
                       </svg>
                     </div>
                   </div>
-                  <div class="stat-value" id="stat-subject-breakdown">0 Records</div>
-                  <div class="stat-hint" id="stat-subject-subtext">Waiting for latest check</div>
+                  <div class="stat-value" id="stat-subject-breakdown">Awaiting Sync</div>
+                  <div class="stat-hint" id="stat-subject-subtext">Waiting for portal synchronization</div>
                 </div>
                 <div class="stat-bottom-row">
                   <span>Discrepancies</span>
-                  <span class="stat-bottom-status">Zero Detected</span>
+                  <span class="stat-bottom-status" id="stat-dashboard-discrepancies">Zero Detected</span>
                 </div>
               </div>
 
@@ -337,7 +346,7 @@
                 </div>
                 <div class="stat-bottom-row">
                   <span>Storage State</span>
-                  <span class="stat-bottom-status">Encrypted Local</span>
+                  <span class="stat-bottom-status" id="stat-storage-status">Encrypted Local</span>
                 </div>
               </div>
             </div>
@@ -891,12 +900,12 @@
               
               <div class="form-group">
                 <label class="form-label">Subject Code</label>
-                <input type="text" id="input-subject-code" class="form-input" required placeholder="e.g. CS101" />
+                <input type="text" id="input-subject-code" class="form-input" required placeholder="e.g. 301ADS" />
               </div>
               
               <div class="form-group">
                 <label class="form-label">Subject Name</label>
-                <input type="text" id="input-subject-name" class="form-input" required placeholder="e.g. Intro to Computer Science" />
+                <input type="text" id="input-subject-name" class="form-input" required placeholder="e.g. Advance Data Structures and Algorithms" />
               </div>
               
               <div style="margin: 1.5rem 0 1rem 0; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-subtle);">
@@ -906,12 +915,12 @@
 
               <div class="form-group">
                 <label class="form-label">Professor Name</label>
-                <input type="text" id="input-prof-name" class="form-input" placeholder="e.g. Dr. Jane Smith" />
+                <input type="text" id="input-prof-name" class="form-input" placeholder="e.g. Prerit Saxena" />
               </div>
               
               <div class="form-group">
                 <label class="form-label">Professor Email</label>
-                <input type="email" id="input-prof-email" class="form-input" placeholder="e.g. janesmith@university.edu" />
+                <input type="email" id="input-prof-email" class="form-input" placeholder="e.g. prerit.saxena@pw.live" />
               </div>
 
               <div class="form-group">
@@ -921,7 +930,7 @@
                     Auto-Discover DM Space
                   </button>
                 </div>
-                <input type="text" id="input-chat-space" class="form-input" placeholder="e.g. spaces/AAAA12345" />
+                <input type="text" id="input-chat-space" class="form-input" placeholder="e.g. spaces/53ncfKAAAAE" />
                 <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Notification destination space ID or resource name</p>
               </div>
 
@@ -1087,7 +1096,7 @@
                 <div style="display: flex; align-items: center; gap: 0.65rem;">
                   <span class="badge-dot" style="background-color: var(--color-success); width: 8px; height: 8px;"></span>
                   <h3 class="card-title">Verified University Log Feeds</h3>
-                  <span class="badge badge-neutral" id="history-term-badge" style="font-size: 0.68rem;">Academic Sem V</span>
+                  <span class="badge badge-neutral" id="history-term-badge" style="font-size: 0.68rem;">PWIOI Term 3</span>
                 </div>
                 <span id="history-latest-check-text" style="font-size: 0.775rem; color: var(--text-muted); font-family: var(--font-mono);">
                   Latest check: Evaluating...
