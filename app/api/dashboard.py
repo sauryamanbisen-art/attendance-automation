@@ -84,6 +84,22 @@ def get_today_dashboard(db: Session = Depends(get_db)):
     acad_tot = acad.total_classes if (acad and acad.sync_status == "SYNCED") else None
     acad_status = acad.sync_status if acad else "AWAITING_PORTAL_SYNC"
 
+    # 5. Real Discrepancies Count (Absent records for valid curriculum subjects)
+    from app.core.enums import AttendanceStatus
+    from app.models.subject import Subject, is_valid_curriculum_code
+    from sqlalchemy import func
+    valid_subject_codes = {s.code for s in db.query(Subject).all() if is_valid_curriculum_code(s.code)}
+    discrepancies_count = 0
+    if valid_subject_codes:
+        discrepancies_count = (
+            db.query(func.count(AttendanceResult.id))
+            .filter(
+                AttendanceResult.status == AttendanceStatus.ABSENT,
+                AttendanceResult.subject_code.in_(valid_subject_codes),
+            )
+            .scalar() or 0
+        )
+
     return DashboardResponse(
         today=today,
         is_holiday=is_holiday,
@@ -94,4 +110,5 @@ def get_today_dashboard(db: Session = Depends(get_db)):
         academic_attended_classes=acad_att,
         academic_total_classes=acad_tot,
         academic_sync_status=acad_status,
+        discrepancies_count=discrepancies_count,
     )
