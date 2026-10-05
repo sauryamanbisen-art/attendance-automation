@@ -316,6 +316,7 @@ class DashboardResponse(BaseModel):
     academic_attended_classes: Optional[int] = None
     academic_total_classes: Optional[int] = None
     academic_sync_status: Optional[str] = "AWAITING_PORTAL_SYNC"
+    discrepancies_count: int = 0
 
 
 class HistoryItem(BaseModel):
