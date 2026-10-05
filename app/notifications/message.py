@@ -16,8 +16,8 @@ def generate_correction_subject(
     """Generate a polite email subject line for an attendance correction request.
 
     Args:
-        subject_code: Academic subject code (e.g. "CS101").
-        subject_name: Human-readable subject name (e.g. "Python Programming").
+        subject_code: Academic subject code (e.g. "301ADS").
+        subject_name: Human-readable subject name (e.g. "Advance Data Structures and Algorithms").
         target_date: The date of the attendance discrepancy.
 
     Returns:
