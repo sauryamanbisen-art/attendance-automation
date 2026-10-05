@@ -310,6 +310,10 @@ class DailyCheckRunner:
                 )
                 continue
 
+            # Gating Rule 3: Deduplicate by subject code so 5 classes cannot become 6
+            if rec.subject_code in processed_codes:
+                continue
+
             processed_codes.add(rec.subject_code)
             subject = self.db.query(Subject).filter(Subject.code == rec.subject_code).first()
             subject_id = subject.id if subject else None
