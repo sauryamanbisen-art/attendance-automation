@@ -265,6 +265,12 @@ export const API = {
       return apiClient('/checks/latest');
     },
     /**
+     * @param {number} [limit=5]
+     */
+    async getRecent(limit = 5) {
+      return apiClient(`/checks/recent?limit=${limit}`);
+    },
+    /**
      * @param {number} [limit=20]
      */
     async getNotifications(limit = 20) {
