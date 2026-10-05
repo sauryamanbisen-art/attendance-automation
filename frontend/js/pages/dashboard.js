@@ -9,6 +9,7 @@ export class DashboardController {
   constructor() {
     this.currentData = null;
     this.latestCheck = null;
+    this.recentChecksList = [];
     this.recentNotifications = [];
     this.sessionStatus = null;
     this.appSettings = null;
@@ -42,6 +43,10 @@ export class DashboardController {
       statSubjectSubtext: document.getElementById('stat-subject-subtext'),
       statSessionStatus: document.getElementById('stat-session-status'),
       statSessionHint: document.getElementById('stat-session-hint'),
+      statEngineStatus: document.getElementById('stat-engine-status'),
+      statConfirmationTrigger: document.getElementById('stat-confirmation-trigger'),
+      statDashboardDiscrepancies: document.getElementById('stat-dashboard-discrepancies'),
+      statStorageStatus: document.getElementById('stat-storage-status'),
 
       // Schedule & Records lists
       holidayCard: document.getElementById('dashboard-holiday-card'),
@@ -143,9 +148,10 @@ export class DashboardController {
     this.isLoading = true;
     this.showState('loading');
     try {
-      const [todayRes, latestCheckRes, notifsRes, sessionRes, settingsRes] = await Promise.allSettled([
+      const [todayRes, latestCheckRes, recentChecksRes, notifsRes, sessionRes, settingsRes] = await Promise.allSettled([
         API.dashboard.getToday(),
         API.checks.getLatest(),
+        API.checks.getRecent ? API.checks.getRecent(5) : Promise.resolve([]),
         API.checks.getNotifications(5),
         API.settings.getSessionStatus(),
         API.settings.read(),
@@ -157,6 +163,9 @@ export class DashboardController {
 
       this.currentData = todayRes.value;
       this.latestCheck = latestCheckRes.status === 'fulfilled' ? latestCheckRes.value?.check : null;
+      this.recentChecksList = (recentChecksRes && recentChecksRes.status === 'fulfilled' && Array.isArray(recentChecksRes.value))
+        ? recentChecksRes.value
+        : (this.latestCheck ? [this.latestCheck] : []);
       this.recentNotifications = notifsRes.status === 'fulfilled' ? (notifsRes.value || []) : [];
       this.sessionStatus = sessionRes.status === 'fulfilled' ? sessionRes.value : null;
       this.appSettings = settingsRes.status === 'fulfilled' ? settingsRes.value : null;
@@ -353,6 +362,28 @@ export class DashboardController {
         this.els.statSessionHint.innerText = `${adapterName} token verified`;
       }
     }
+
+    // Dynamic Bottom Row Status Indicators (Real DB & Session State)
+    if (this.els.statEngineStatus) {
+      if (this.latestCheck) {
+        this.els.statEngineStatus.innerText = this.latestCheck.status === 'SUCCESS' ? '● Healthy' : `● ${this.latestCheck.status}`;
+      } else {
+        this.els.statEngineStatus.innerText = '● Idle';
+      }
+    }
+
+    if (this.els.statConfirmationTrigger) {
+      this.els.statConfirmationTrigger.innerText = this.currentData?.is_confirmed ? 'Confirmed · Active' : 'Safe to verify';
+    }
+
+    if (this.els.statDashboardDiscrepancies) {
+      const disc = this.currentData?.discrepancies_count || 0;
+      this.els.statDashboardDiscrepancies.innerText = disc > 0 ? `${disc} Absent Logged` : 'Zero Detected';
+    }
+
+    if (this.els.statStorageStatus) {
+      this.els.statStorageStatus.innerText = this.sessionStatus?.session_file_exists ? 'Verified Session' : 'Encrypted Local';
+    }
   }
 
   async handleConfirmation() {
@@ -506,7 +537,11 @@ export class DashboardController {
 
   renderRecentChecks() {
     if (!this.els.recentChecks) return;
-    if (!this.latestCheck) {
+    const checks = (this.recentChecksList && this.recentChecksList.length > 0)
+      ? this.recentChecksList
+      : (this.latestCheck ? [this.latestCheck] : []);
+
+    if (checks.length === 0) {
       this.els.recentChecks.innerHTML = `
         <div style="padding: 1.25rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
           No attendance checks recorded in the database yet.
@@ -515,40 +550,44 @@ export class DashboardController {
       return;
     }
 
-    const check = this.latestCheck;
-    const isSuccess = check.status === 'SUCCESS';
-    const statusBadge = isSuccess 
-      ? `<span class="badge badge-success"><span class="badge-dot"></span>SUCCESS</span>`
-      : `<span class="badge badge-danger"><span class="badge-dot"></span>${escapeHtml(check.status)}</span>`;
+    let html = '<div style="display: flex; flex-direction: column; gap: 0.75rem;">';
+    for (const check of checks) {
+      const isSuccess = check.status === 'SUCCESS';
+      const statusBadge = isSuccess
+        ? `<span class="badge badge-success"><span class="badge-dot"></span>SUCCESS</span>`
+        : `<span class="badge badge-danger"><span class="badge-dot"></span>${escapeHtml(check.status)}</span>`;
 
-    const checkedTime = new Date(check.checked_at).toLocaleString();
-    const resultCount = check.results ? check.results.length : 0;
-    let pCount = 0, aCount = 0, uCount = 0;
-    (check.results || []).forEach(r => {
-      if (r.status === 'PRESENT') pCount++;
-      else if (r.status === 'ABSENT') aCount++;
-      else uCount++;
-    });
-    const resultBreakdown = resultCount > 0
-      ? `<span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.35rem;">(${pCount} Present, ${aCount} Absent, ${uCount} Unknown)</span>`
-      : '';
+      const checkedTime = new Date(check.checked_at).toLocaleString();
+      const resultCount = check.results ? check.results.length : 0;
+      let pCount = 0, aCount = 0, uCount = 0;
+      (check.results || []).forEach(r => {
+        if (r.status === 'PRESENT') pCount++;
+        else if (r.status === 'ABSENT') aCount++;
+        else uCount++;
+      });
+      const resultBreakdown = resultCount > 0
+        ? `<span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.35rem;">(${pCount} Present, ${aCount} Absent, ${uCount} Unknown)</span>`
+        : '';
 
-    this.els.recentChecks.innerHTML = `
-      <div style="padding: 1.15rem; background: var(--neutral-surface); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
-          <div style="display: flex; align-items: center; gap: 0.6rem;">
-            ${statusBadge}
-            <span style="font-size: 0.9rem; font-weight: 700; color: var(--text-main); font-family: var(--font-mono);">${escapeHtml(check.date)}</span>
+      html += `
+        <div style="padding: 0.9rem 1.15rem; background: var(--neutral-surface); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              ${statusBadge}
+              <span style="font-size: 0.875rem; font-weight: 700; color: var(--text-main); font-family: var(--font-mono);">${escapeHtml(check.date)}</span>
+            </div>
+            <span class="code-tag">${escapeHtml(check.adapter_name)}</span>
           </div>
-          <span class="code-tag">${escapeHtml(check.adapter_name)}</span>
+          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted);">
+            <span>Checked: <strong>${escapeHtml(checkedTime)}</strong></span>
+            <span>Subjects: <strong>${resultCount}</strong> ${resultBreakdown}</span>
+          </div>
+          ${check.error_message ? `<div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--color-danger); background: var(--color-danger-bg); border: 1px solid var(--color-danger-border); padding: 0.4rem 0.65rem; border-radius: var(--radius-sm);">${escapeHtml(check.error_message)}</div>` : ''}
         </div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted);">
-          <span>Checked: <strong>${escapeHtml(checkedTime)}</strong></span>
-          <span>Subjects: <strong>${resultCount}</strong> ${resultBreakdown}</span>
-        </div>
-        ${check.error_message ? `<div style="margin-top: 0.6rem; font-size: 0.75rem; color: var(--color-danger); background: var(--color-danger-bg); border: 1px solid var(--color-danger-border); padding: 0.4rem 0.65rem; border-radius: var(--radius-sm);">${escapeHtml(check.error_message)}</div>` : ''}
-      </div>
-    `;
+      `;
+    }
+    html += '</div>';
+    this.els.recentChecks.innerHTML = html;
   }
 
   renderNotificationsFeed() {
