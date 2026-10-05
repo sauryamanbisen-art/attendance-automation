@@ -298,7 +298,9 @@ export class HistoryController {
       let notesSnippet = null;
       if (item.notes && typeof item.notes === 'string') {
         const raw = item.notes.trim();
-        if (raw.startsWith('{') && raw.endsWith('}')) {
+        if (raw.toLowerCase().startsWith('has note')) {
+          notesSnippet = raw.toLowerCase().includes('noted') ? 'Has Noted' : 'Has notes';
+        } else if (raw.startsWith('{') && raw.endsWith('}')) {
           try {
             const parsed = JSON.parse(raw);
             if (parsed && typeof parsed === 'object') {
@@ -310,14 +312,16 @@ export class HistoryController {
               notesSnippet = match[1];
             }
           }
-        } else if (!raw.includes('{') && !raw.includes('retries_attempted')) {
+        } else if (!raw.includes('{') && !raw.includes('retries')) {
           notesSnippet = raw;
         }
       }
 
+      const isCleanNote = notesSnippet === 'Has notes' || notesSnippet === 'Has Noted';
+      const noteText = isCleanNote ? notesSnippet : `Note: ${notesSnippet}`;
       const noteHtml = notesSnippet
         ? `<div style="font-size: 0.725rem; color: var(--text-muted); margin-top: 0.15rem; display: flex; align-items: center; gap: 0.25rem;">
-            <span>📄 Note: ${escapeHtml(notesSnippet)}</span>
+            <span>📄 ${escapeHtml(noteText)}</span>
           </div>`
         : '';
 
