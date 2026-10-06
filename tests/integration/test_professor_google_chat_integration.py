@@ -59,25 +59,14 @@ from app.services.decision_engine import DecisionEngine, DecisionResult
 from main import app
 
 
-@pytest.fixture
-def db():
-    """Isolated in-memory SQLite database for testing."""
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    try:
-        yield session
-    finally:
-        session.close()
 
 
 @pytest.fixture
-def configured_subject(db):
+def configured_subject(db_session):
     """Create a subject with complete professor and Google Chat destination mapping."""
     sub = Subject(code="CS301", name="Database Systems")
-    db.add(sub)
-    db.flush()
+    db_session.add(sub)
+    db_session.flush()
 
     mapping = ProfessorMapping(
         subject_id=sub.id,
@@ -86,9 +75,9 @@ def configured_subject(db):
         google_chat_space="spaces/DATABASE_FACULTY",
         is_active=True,
     )
-    db.add(mapping)
-    db.commit()
-    db.refresh(sub)
+    db_session.add(mapping)
+    db_session.commit()
+    db_session.refresh(sub)
     return sub
 
 
@@ -190,14 +179,14 @@ def test_subject_professor_mapping_crud(client: TestClient):
 # ==============================================================================
 
 
-def test_professor_notification_configuration_active_toggle(db, configured_subject):
+def test_professor_notification_configuration_active_toggle(db_session, configured_subject):
     """Verify toggling is_active disables/enables notification eligibility in DecisionEngine."""
     target_date = date(2026, 9, 30)
     engine = DecisionEngine()
 
     # Active = True: absent + confirmed -> ELIGIBLE_FOR_NOTIFICATION
     dec_active = engine.evaluate_subject_record(
-        db=db,
+        db=db_session,
         target_date=target_date,
         subject_code=configured_subject.code,
         status=AttendanceStatus.ABSENT,
@@ -208,10 +197,10 @@ def test_professor_notification_configuration_active_toggle(db, configured_subje
     assert dec_active.reason == DecisionReason.ATTENDANCE_NOT_CONFIRMED
 
     # Add confirmation
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     dec_active_conf = engine.evaluate_subject_record(
-        db=db,
+        db=db_session,
         target_date=target_date,
         subject_code=configured_subject.code,
         status=AttendanceStatus.ABSENT,
@@ -223,10 +212,10 @@ def test_professor_notification_configuration_active_toggle(db, configured_subje
 
     # Toggle is_active to False
     configured_subject.professor_mapping.is_active = False
-    db.commit()
+    db_session.commit()
 
     dec_inactive = engine.evaluate_subject_record(
-        db=db,
+        db=db_session,
         target_date=target_date,
         subject_code=configured_subject.code,
         status=AttendanceStatus.ABSENT,
@@ -293,14 +282,14 @@ def test_google_chat_destination_configuration():
 # ==============================================================================
 
 
-def test_missing_professor_mapping_no_notification(db):
+def test_missing_professor_mapping_no_notification(db_session):
     """Verify missing professor mapping prevents notification and records audit event."""
     sub = Subject(code="UNMAPPED", name="Unmapped Subject")
-    db.add(sub)
-    db.commit()
+    db_session.add(sub)
+    db_session.commit()
 
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     fake_client = FakeGoogleChatClient()
     chat_provider = GoogleChatNotificationProvider(
@@ -308,7 +297,7 @@ def test_missing_professor_mapping_no_notification(db):
         api_client=fake_client,
     )
 
-    runner = DailyCheckRunner(db=db, notification_provider=chat_provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=chat_provider)
     result = runner.run_daily_check(
         target_date=target_date,
         ignore_cutoff=True,
@@ -322,11 +311,11 @@ def test_missing_professor_mapping_no_notification(db):
     assert result.eligible_count == 0
     assert result.notifications_sent == 0
     assert len(fake_client.sent_messages) == 0
-    assert db.query(NotificationEvent).count() == 0
+    assert db_session.query(NotificationEvent).count() == 0
 
     # Audit event recorded for missing mapping
     skipped_audit = (
-        db.query(AuditEvent)
+        db_session.query(AuditEvent)
         .filter(AuditEvent.action == "NOTIFICATION_SKIPPED_MISSING_MAPPING")
         .first()
     )
@@ -340,11 +329,11 @@ def test_missing_professor_mapping_no_notification(db):
 # ==============================================================================
 
 
-def test_missing_notification_destination_recorded_in_audit_and_notification(db):
+def test_missing_notification_destination_recorded_in_audit_and_notification(db_session):
     """Verify missing Google Chat destination safely fails closed, logs error, and records event."""
     sub = Subject(code="NODEST", name="Subject Without Space")
-    db.add(sub)
-    db.flush()
+    db_session.add(sub)
+    db_session.flush()
 
     mapping = ProfessorMapping(
         subject_id=sub.id,
@@ -352,18 +341,18 @@ def test_missing_notification_destination_recorded_in_audit_and_notification(db)
         professor_email="nospace@university.edu",
         google_chat_space=None,  # No space configured!
     )
-    db.add(mapping)
-    db.commit()
+    db_session.add(mapping)
+    db_session.commit()
 
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     # Provider with NO default space and NO recipient mapping
     empty_cfg = GoogleChatConfig(default_space=None, recipient_space_mapping={})
     fake_client = FakeGoogleChatClient()
     provider = GoogleChatNotificationProvider(config=empty_cfg, api_client=fake_client)
 
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
     result = runner.run_daily_check(
         target_date=target_date,
         ignore_cutoff=True,
@@ -379,13 +368,13 @@ def test_missing_notification_destination_recorded_in_audit_and_notification(db)
     assert len(fake_client.sent_messages) == 0  # No message sent!
 
     # NotificationEvent persisted with status=FAILED and error recorded
-    event = db.query(NotificationEvent).filter_by(subject_id=sub.id).first()
+    event = db_session.query(NotificationEvent).filter_by(subject_id=sub.id).first()
     assert event is not None
     assert event.status == NotificationStatus.FAILED
     assert "No Google Chat space configured" in event.error_message
 
     # Audit event recorded with NOTIFICATION_FAILED
-    audit = db.query(AuditEvent).filter_by(action="NOTIFICATION_FAILED").first()
+    audit = db_session.query(AuditEvent).filter_by(action="NOTIFICATION_FAILED").first()
     assert audit is not None
     assert "No Google Chat space configured" in audit.details["error"]
 
@@ -395,17 +384,17 @@ def test_missing_notification_destination_recorded_in_audit_and_notification(db)
 # ==============================================================================
 
 
-def test_portal_present_no_notification(db, configured_subject):
+def test_portal_present_no_notification(db_session, configured_subject):
     """Verify portal PRESENT produces NO_ACTION and 0 notifications."""
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     fake_client = FakeGoogleChatClient()
     provider = GoogleChatNotificationProvider(
         config=GoogleChatConfig(default_space="spaces/DEFAULT"),
         api_client=fake_client,
     )
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     result = runner.run_daily_check(
         target_date=target_date,
@@ -420,7 +409,7 @@ def test_portal_present_no_notification(db, configured_subject):
     assert result.eligible_count == 0
     assert result.notifications_sent == 0
     assert len(fake_client.sent_messages) == 0
-    assert db.query(NotificationEvent).count() == 0
+    assert db_session.query(NotificationEvent).count() == 0
 
 
 # ==============================================================================
@@ -428,17 +417,17 @@ def test_portal_present_no_notification(db, configured_subject):
 # ==============================================================================
 
 
-def test_portal_unknown_or_error_fail_closed_no_notification(db, configured_subject):
+def test_portal_unknown_or_error_fail_closed_no_notification(db_session, configured_subject):
     """Verify portal UNKNOWN or unreliable result fails closed with NO_ACTION."""
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     fake_client = FakeGoogleChatClient()
     provider = GoogleChatNotificationProvider(
         config=GoogleChatConfig(default_space="spaces/DEFAULT"),
         api_client=fake_client,
     )
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     # Case A: Explicit UNKNOWN status
     res_unknown = runner.run_daily_check(
@@ -472,17 +461,17 @@ def test_portal_unknown_or_error_fail_closed_no_notification(db, configured_subj
 # ==============================================================================
 
 
-def test_absent_without_confirmation_no_notification(db, configured_subject):
+def test_absent_without_confirmation_no_notification(db_session, configured_subject):
     """Verify portal ABSENT without user confirmation skips check safely."""
     target_date = date(2026, 9, 30)
-    assert ConfirmationService(db).is_confirmed(target_date) is False
+    assert ConfirmationService(db_session).is_confirmed(target_date) is False
 
     fake_client = FakeGoogleChatClient()
     provider = GoogleChatNotificationProvider(
         config=GoogleChatConfig(default_space="spaces/DEFAULT"),
         api_client=fake_client,
     )
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     result = runner.run_daily_check(
         target_date=target_date,
@@ -504,10 +493,10 @@ def test_absent_without_confirmation_no_notification(db, configured_subject):
 # ==============================================================================
 
 
-def test_absent_with_confirmation_dispatches_google_chat(db, configured_subject):
+def test_absent_with_confirmation_dispatches_google_chat(db_session, configured_subject):
     """Verify confirmed discrepancy dispatches formatted Google Chat message with complete context."""
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     fake_client = FakeGoogleChatClient()
     provider = GoogleChatNotificationProvider(
@@ -515,7 +504,7 @@ def test_absent_with_confirmation_dispatches_google_chat(db, configured_subject)
         api_client=fake_client,
         is_dry_run=False,
     )
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     result = runner.run_daily_check(
         target_date=target_date,
@@ -544,7 +533,7 @@ def test_absent_with_confirmation_dispatches_google_chat(db, configured_subject)
     assert "attended the above class" in text.lower()  # Relevant confirmation context
 
     # Verify database persistence
-    event = db.query(NotificationEvent).filter_by(subject_id=configured_subject.id).first()
+    event = db_session.query(NotificationEvent).filter_by(subject_id=configured_subject.id).first()
     assert event is not None
     assert event.status == NotificationStatus.SENT
     assert event.dry_run is False
@@ -556,10 +545,10 @@ def test_absent_with_confirmation_dispatches_google_chat(db, configured_subject)
 # ==============================================================================
 
 
-def test_duplicate_notification_prevention(db, configured_subject):
+def test_duplicate_notification_prevention(db_session, configured_subject):
     """Verify executing multiple checks prevents duplicate notifications for the same event."""
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     fake_client = FakeGoogleChatClient()
     provider = GoogleChatNotificationProvider(
@@ -567,7 +556,7 @@ def test_duplicate_notification_prevention(db, configured_subject):
         api_client=fake_client,
         is_dry_run=False,
     )
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     # First check dispatches
     res1 = runner.run_daily_check(
@@ -596,7 +585,7 @@ def test_duplicate_notification_prevention(db, configured_subject):
     assert res2.decisions[0].reason == DecisionReason.ALREADY_NOTIFIED
     assert len(fake_client.sent_messages) == 1  # Still exactly 1 message sent!
 
-    total_events = db.query(NotificationEvent).filter_by(subject_id=configured_subject.id).count()
+    total_events = db_session.query(NotificationEvent).filter_by(subject_id=configured_subject.id).count()
     assert total_events == 1
 
 
@@ -605,10 +594,10 @@ def test_duplicate_notification_prevention(db, configured_subject):
 # ==============================================================================
 
 
-def test_dry_run_behavior_google_chat(db, configured_subject):
+def test_dry_run_behavior_google_chat(db_session, configured_subject):
     """Verify DRY_RUN mode validates space, returns success, persists SKIPPED event, and sends no messages."""
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     fake_client = FakeGoogleChatClient()
     provider = GoogleChatNotificationProvider(
@@ -616,7 +605,7 @@ def test_dry_run_behavior_google_chat(db, configured_subject):
         api_client=fake_client,
         is_dry_run=True,
     )
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     result = runner.run_daily_check(
         target_date=target_date,
@@ -633,14 +622,14 @@ def test_dry_run_behavior_google_chat(db, configured_subject):
     assert len(fake_client.sent_messages) == 0
 
     # NotificationEvent recorded as SKIPPED and dry_run=True
-    event = db.query(NotificationEvent).filter_by(subject_id=configured_subject.id).first()
+    event = db_session.query(NotificationEvent).filter_by(subject_id=configured_subject.id).first()
     assert event is not None
     assert event.status == NotificationStatus.SKIPPED
     assert event.dry_run is True
     assert event.sent_at is None
 
     # Audit event recorded with NOTIFICATION_DRY_RUN
-    audit = db.query(AuditEvent).filter_by(action="NOTIFICATION_DRY_RUN").first()
+    audit = db_session.query(AuditEvent).filter_by(action="NOTIFICATION_DRY_RUN").first()
     assert audit is not None
     assert audit.details["is_dry_run"] is True
 
@@ -674,10 +663,10 @@ def test_fake_google_chat_adapter_behavior():
 # ==============================================================================
 
 
-def test_notification_failure_handling(db, configured_subject):
+def test_notification_failure_handling(db_session, configured_subject):
     """Verify delivery errors fail safely, record FAILED state, and do not crash scheduler."""
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     # Crashing client
     crashing_client = FakeGoogleChatClient(
@@ -689,7 +678,7 @@ def test_notification_failure_handling(db, configured_subject):
         api_client=crashing_client,
         is_dry_run=False,
     )
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     result = runner.run_daily_check(
         target_date=target_date,
@@ -706,13 +695,13 @@ def test_notification_failure_handling(db, configured_subject):
     assert result.notifications_sent == 0
 
     # NotificationEvent recorded as FAILED
-    event = db.query(NotificationEvent).filter_by(subject_id=configured_subject.id).first()
+    event = db_session.query(NotificationEvent).filter_by(subject_id=configured_subject.id).first()
     assert event is not None
     assert event.status == NotificationStatus.FAILED
     assert "Service Unavailable" in event.error_message
 
     # AuditEvent recorded as NOTIFICATION_FAILED
-    audit = db.query(AuditEvent).filter_by(action="NOTIFICATION_FAILED").first()
+    audit = db_session.query(AuditEvent).filter_by(action="NOTIFICATION_FAILED").first()
     assert audit is not None
     assert "Service Unavailable" in audit.details["error"]
 
@@ -722,7 +711,7 @@ def test_notification_failure_handling(db, configured_subject):
 # ==============================================================================
 
 
-def test_fail_closed_behavior(db):
+def test_fail_closed_behavior(db_session):
     """Verify safety engine fails closed under missing subjects, corrupt entries, or unconfirmed states."""
     engine = DecisionEngine()
     target_date = date(2026, 9, 30)
@@ -757,7 +746,7 @@ def test_fail_closed_behavior(db):
 
     # Ineligible decision passed to NotificationService -> returns None, never calls provider
     mock_provider = MagicMock(spec=GoogleChatNotificationProvider)
-    service = NotificationService(provider=mock_provider, db=db)
+    service = NotificationService(provider=mock_provider, db=db_session)
     outcome = service.process_decision(r1)
     assert outcome is None
     mock_provider.send.assert_not_called()
@@ -768,14 +757,14 @@ def test_fail_closed_behavior(db):
 # ==============================================================================
 
 
-def test_multiple_subjects_share_same_google_chat_space(db):
+def test_multiple_subjects_share_same_google_chat_space(db_session):
     """Verify multiple subjects/professors can share the exact same Google Chat space without collision."""
     shared_space = "spaces/DEPARTMENT_SHARED_SPACE"
 
     # Subject 1
     sub1 = Subject(code="CS401", name="Operating Systems")
-    db.add(sub1)
-    db.flush()
+    db_session.add(sub1)
+    db_session.flush()
     m1 = ProfessorMapping(
         subject_id=sub1.id,
         professor_name="Prof. Linus",
@@ -783,12 +772,12 @@ def test_multiple_subjects_share_same_google_chat_space(db):
         google_chat_space=shared_space,
         is_active=True,
     )
-    db.add(m1)
+    db_session.add(m1)
 
     # Subject 2 with different professor but SAME Google Chat Space
     sub2 = Subject(code="CS402", name="Distributed Systems")
-    db.add(sub2)
-    db.flush()
+    db_session.add(sub2)
+    db_session.flush()
     m2 = ProfessorMapping(
         subject_id=sub2.id,
         professor_name="Prof. Leslie",
@@ -796,11 +785,11 @@ def test_multiple_subjects_share_same_google_chat_space(db):
         google_chat_space=shared_space,
         is_active=True,
     )
-    db.add(m2)
-    db.commit()
+    db_session.add(m2)
+    db_session.commit()
 
     target_date = date(2026, 9, 30)
-    ConfirmationService(db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     fake_client = FakeGoogleChatClient()
     provider = GoogleChatNotificationProvider(
@@ -808,7 +797,7 @@ def test_multiple_subjects_share_same_google_chat_space(db):
         api_client=fake_client,
         is_dry_run=False,
     )
-    runner = DailyCheckRunner(db=db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     result = runner.run_daily_check(
         target_date=target_date,
