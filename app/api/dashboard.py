@@ -30,21 +30,23 @@ def get_today_dashboard(db: Session = Depends(get_db)):
 
     today = datetime.now(tz).date()
 
-    # 1. Timetable Schedule
+    
+    # 1. Timetable Schedule (from Google Calendar)
     timetable_service = TimetableService(db)
     is_holiday = timetable_service.is_holiday(today)
     expected_classes = timetable_service.get_classes_for_date(today)
     
     expected_classes_resp = [
         SubjectResponse(
-            id=s.id,
-            code=s.code,
-            name=s.name,
-            professor_name=s.professor_mapping.professor_name if s.professor_mapping else None,
-            professor_email=s.professor_mapping.professor_email if s.professor_mapping else None,
-            google_chat_space=s.professor_mapping.google_chat_space if s.professor_mapping else None,
-        ) for s in expected_classes
+            id=c.subject.id,
+            code=c.subject.code,
+            name=c.subject.name,
+            professor_name=c.subject.professor_mapping.professor_name if c.subject.professor_mapping else None,
+            professor_email=c.subject.professor_mapping.professor_email if c.subject.professor_mapping else None,
+            google_chat_space=c.subject.professor_mapping.google_chat_space if c.subject.professor_mapping else None,
+        ) for c in expected_classes
     ]
+
 
     # 2. Confirmation
     confirmation_service = ConfirmationService(db)
@@ -61,7 +63,7 @@ def get_today_dashboard(db: Session = Depends(get_db)):
     attendance_records_resp: List[SubjectResultItem] = []
     if latest_check and len(expected_classes) > 0:
         from app.models.subject import is_valid_curriculum_code
-        expected_codes_set = {s.code for s in expected_classes}
+        expected_codes_set = {c.subject.code for c in expected_classes}
         results = db.query(AttendanceResult).filter(AttendanceResult.check_id == latest_check.id).all()
         for r in results:
             if not is_valid_curriculum_code(r.subject_code):
