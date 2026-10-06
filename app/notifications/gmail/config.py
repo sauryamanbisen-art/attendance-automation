@@ -8,6 +8,7 @@ from app.security.redaction import redact_string
 
 DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar.readonly",
 )
 DEFAULT_REDIRECT_URI = "http://localhost:8000/api/auth/gmail/callback"
 
