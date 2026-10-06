@@ -51,14 +51,14 @@ def test_subjects_and_mappings_api(client: TestClient) -> None:
     """Test subject registration and professor mapping via API."""
     # 1. Create subject
     payload = {
-        "code": "CS101",
+        "code": "303PDS",
         "name": "Python Programming",
         "professor_name": "Dr. Alan Turing",
         "professor_email": "turing@university.edu",
     }
     res = client.post("/api/subjects", json=payload)
     assert res.status_code == 201
-    assert res.json()["code"] == "CS101"
+    assert res.json()["code"] == "303PDS"
     assert res.json()["professor_email"] == "turing@university.edu"
 
     # 2. Duplicate code -> 409 Conflict
@@ -75,33 +75,33 @@ def test_subjects_and_mappings_api(client: TestClient) -> None:
         "professor_name": "Prof. Ada Lovelace",
         "professor_email": "ada@university.edu",
     }
-    res_map = client.post("/api/subjects/CS101/mapping", json=map_payload)
+    res_map = client.post("/api/subjects/303PDS/mapping", json=map_payload)
     assert res_map.status_code == 200
     assert res_map.json()["professor_name"] == "Prof. Ada Lovelace"
     assert res_map.json()["professor_email"] == "ada@university.edu"
 
     # 5. Update subject via PUT endpoint
     update_payload = {
-        "code": "CS101X",
+        "code": "303PDSX",
         "name": "Advanced Python",
         "professor_name": "Prof. Turing",
         "professor_email": "alan@university.edu",
         "google_chat_space": "spaces/TEST"
     }
-    res_put = client.put("/api/subjects/CS101", json=update_payload)
+    res_put = client.put("/api/subjects/303PDS", json=update_payload)
     assert res_put.status_code == 200
-    assert res_put.json()["code"] == "CS101X"
+    assert res_put.json()["code"] == "303PDSX"
     assert res_put.json()["name"] == "Advanced Python"
     assert res_put.json()["professor_email"] == "alan@university.edu"
     assert res_put.json()["google_chat_space"] == "spaces/TEST"
 
     # 6. Delete subject via DELETE endpoint
-    res_del = client.delete("/api/subjects/CS101X")
+    res_del = client.delete("/api/subjects/303PDSX")
     assert res_del.status_code == 204
     
     # 7. Check if deleted
     res_list2 = client.get("/api/subjects")
-    assert not any(s["code"] == "CS101X" for s in res_list2.json())
+    assert not any(s["code"] == "303PDSX" for s in res_list2.json())
 
 
 def test_checks_and_audit_api(client: TestClient) -> None:
