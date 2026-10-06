@@ -61,25 +61,14 @@ from app.services.timetable_service import TimetableService
 from main import app
 
 
-@pytest.fixture
-def audit_db():
-    """In-memory SQLite database isolated for pipeline audit."""
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    try:
-        yield session
-    finally:
-        session.close()
 
 
 @pytest.fixture
-def sample_subject(audit_db):
+def sample_subject(db_session):
     """Create a subject with complete professor mapping."""
     sub = Subject(code="CS501", name="Distributed Computing")
-    audit_db.add(sub)
-    audit_db.flush()
+    db_session.add(sub)
+    db_session.flush()
 
     prof = ProfessorMapping(
         subject_id=sub.id,
@@ -87,9 +76,9 @@ def sample_subject(audit_db):
         professor_email="lamport@university.edu",
         google_chat_space="spaces/LAMPORT_SPACE",
     )
-    audit_db.add(prof)
-    audit_db.commit()
-    audit_db.refresh(sub)
+    db_session.add(prof)
+    db_session.commit()
+    db_session.refresh(sub)
     return sub
 
 
@@ -155,13 +144,13 @@ class RecordingProvider(BaseNotificationProvider):
 # AUDIT TESTS
 # ============================================================================
 
-def test_1_confirmed_date_reaches_scheduled_check(audit_db, sample_subject):
+def test_1_confirmed_date_reaches_scheduled_check(db_session, sample_subject):
     """1. A confirmed attendance date can reach the scheduled check correctly."""
     target_date = date(2026, 9, 29)
-    conf_svc = ConfirmationService(audit_db)
+    conf_svc = ConfirmationService(db_session)
     
     # Before confirmation: check is skipped
-    runner = DailyCheckRunner(db=audit_db)
+    runner = DailyCheckRunner(db=db_session)
     res_unconfirmed = runner.run_daily_check(
         target_date=target_date,
         ignore_cutoff=True,
@@ -186,15 +175,15 @@ def test_1_confirmed_date_reaches_scheduled_check(audit_db, sample_subject):
     assert res_confirmed.subjects_checked == 1
 
 
-def test_2_timetable_resolution_handles_all_cases(audit_db, sample_subject):
+def test_2_timetable_resolution_handles_all_cases(db_session, sample_subject):
     """2. Timetable resolution correctly handles normal, holidays, cancelled, extra."""
     target_date = date(2026, 9, 29)  # Tuesday (weekday 1)
-    tt_svc = TimetableService(audit_db)
+    tt_svc = TimetableService(db_session)
 
     # Add second subject
     sub2 = Subject(code="CS502", name="Operating Systems")
-    audit_db.add(sub2)
-    audit_db.flush()
+    db_session.add(sub2)
+    db_session.flush()
 
     # Normal slot for CS501 on Tuesday
     slot = TimetableSlot(
@@ -203,12 +192,12 @@ def test_2_timetable_resolution_handles_all_cases(audit_db, sample_subject):
         start_time=time(9, 0),
         end_time=time(10, 0),
     )
-    audit_db.add(slot)
-    audit_db.commit()
+    db_session.add(slot)
+    db_session.commit()
 
     # Case A: Normal Tuesday -> CS501 scheduled
     classes = tt_svc.get_classes_for_date(target_date)
-    assert [c.code for c in classes] == ["CS501"]
+    assert [c.subject.code for c in classes] == ["CS501"]
 
     # Case B: Cancelled exception -> CS501 cancelled
     exc_cancel = ClassException(
@@ -217,8 +206,8 @@ def test_2_timetable_resolution_handles_all_cases(audit_db, sample_subject):
         exception_type=ExceptionType.CANCELLED,
         description="Prof unwell",
     )
-    audit_db.add(exc_cancel)
-    audit_db.commit()
+    db_session.add(exc_cancel)
+    db_session.commit()
     assert tt_svc.get_classes_for_date(target_date) == []
 
     # Case C: Extra class for CS502 -> CS502 included
@@ -229,25 +218,25 @@ def test_2_timetable_resolution_handles_all_cases(audit_db, sample_subject):
         start_time=time(14, 0),
         end_time=time(15, 0),
     )
-    audit_db.add(exc_extra)
-    audit_db.commit()
-    assert [c.code for c in tt_svc.get_classes_for_date(target_date)] == ["CS502"]
+    db_session.add(exc_extra)
+    db_session.commit()
+    assert [c.subject.code for c in tt_svc.get_classes_for_date(target_date)] == ["CS502"]
 
     # Case D: Holiday declared -> regular classes suppressed, but extra classes remain
     holiday = Holiday(date=target_date, description="National Holiday")
-    audit_db.add(holiday)
-    audit_db.commit()
+    db_session.add(holiday)
+    db_session.commit()
     # Even on holiday, extra scheduled class CS502 remains
-    assert [c.code for c in tt_svc.get_classes_for_date(target_date)] == ["CS502"]
+    assert [c.subject.code for c in tt_svc.get_classes_for_date(target_date)] == ["CS502"]
 
 
-def test_3_portal_present_never_notifies(audit_db, sample_subject):
+def test_3_portal_present_never_notifies(db_session, sample_subject):
     """3. Portal PRESENT never generates a notification."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     provider = RecordingProvider()
-    runner = DailyCheckRunner(db=audit_db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     res = runner.run_daily_check(
         target_date=target_date,
@@ -260,16 +249,16 @@ def test_3_portal_present_never_notifies(audit_db, sample_subject):
     assert res.eligible_count == 0
     assert res.notifications_sent == 0
     assert len(provider.sent_payloads) == 0
-    assert audit_db.query(NotificationEvent).count() == 0
+    assert db_session.query(NotificationEvent).count() == 0
 
 
-def test_4_portal_unknown_never_notifies(audit_db, sample_subject):
+def test_4_portal_unknown_never_notifies(db_session, sample_subject):
     """4. Portal UNKNOWN never generates a notification."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     provider = RecordingProvider()
-    runner = DailyCheckRunner(db=audit_db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     res = runner.run_daily_check(
         target_date=target_date,
@@ -284,13 +273,13 @@ def test_4_portal_unknown_never_notifies(audit_db, sample_subject):
     assert len(provider.sent_payloads) == 0
 
 
-def test_5_unreliable_portal_extraction_never_notifies(audit_db, sample_subject):
+def test_5_unreliable_portal_extraction_never_notifies(db_session, sample_subject):
     """5. Unreliable portal extraction never generates a notification."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     provider = RecordingProvider()
-    runner = DailyCheckRunner(db=audit_db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     # Portal reported ABSENT, but is_reliable is False (OCR glitch or partial page)
     res = runner.run_daily_check(
@@ -306,13 +295,13 @@ def test_5_unreliable_portal_extraction_never_notifies(audit_db, sample_subject)
     assert len(provider.sent_payloads) == 0
 
 
-def test_6_absent_confirmed_reliable_valid_mapping_dispatches(audit_db, sample_subject):
+def test_6_absent_confirmed_reliable_valid_mapping_dispatches(db_session, sample_subject):
     """6. ABSENT + confirmed + reliable + valid professor mapping reaches notification dispatch."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     provider = RecordingProvider(is_dry_run=False)
-    runner = DailyCheckRunner(db=audit_db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     res = runner.run_daily_check(
         target_date=target_date,
@@ -332,24 +321,24 @@ def test_6_absent_confirmed_reliable_valid_mapping_dispatches(audit_db, sample_s
     assert payload.subject_code == "CS501"
 
     # Notification event recorded with SENT
-    event = audit_db.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
+    event = db_session.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
     assert event is not None
     assert event.status == NotificationStatus.SENT
     assert event.dry_run is False
 
 
-def test_7_missing_professor_mapping_stops_dispatch_safely(audit_db):
+def test_7_missing_professor_mapping_stops_dispatch_safely(db_session):
     """7. Missing professor mapping/email stops dispatch safely."""
     # Subject without professor mapping
     orphan_sub = Subject(code="ORPHAN101", name="Unmapped Course")
-    audit_db.add(orphan_sub)
-    audit_db.commit()
+    db_session.add(orphan_sub)
+    db_session.commit()
 
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     provider = RecordingProvider()
-    runner = DailyCheckRunner(db=audit_db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     res = runner.run_daily_check(
         target_date=target_date,
@@ -364,13 +353,13 @@ def test_7_missing_professor_mapping_stops_dispatch_safely(audit_db):
     assert len(provider.sent_payloads) == 0
 
 
-def test_8_duplicate_notification_prevention(audit_db, sample_subject):
+def test_8_duplicate_notification_prevention(db_session, sample_subject):
     """8. Duplicate notification prevention works even across repeated/concurrent executions."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     provider = RecordingProvider(is_dry_run=False)
-    runner = DailyCheckRunner(db=audit_db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     # First run sends notification
     res1 = runner.run_daily_check(
@@ -400,13 +389,13 @@ def test_8_duplicate_notification_prevention(audit_db, sample_subject):
     assert len(provider.sent_payloads) == 1  # No additional message sent
 
 
-def test_9_dry_run_mode_never_sends_external(audit_db, sample_subject):
+def test_9_dry_run_mode_never_sends_external(db_session, sample_subject):
     """9. Dry-run mode never sends a real external message."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     provider = RecordingProvider(is_dry_run=True)
-    runner = DailyCheckRunner(db=audit_db, notification_provider=provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=provider)
 
     res = runner.run_daily_check(
         target_date=target_date,
@@ -420,7 +409,7 @@ def test_9_dry_run_mode_never_sends_external(audit_db, sample_subject):
     assert res.dry_run is True
 
     # Check notification event is recorded as SKIPPED / dry_run=True
-    event = audit_db.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
+    event = db_session.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
     assert event is not None
     assert event.dry_run is True
     assert event.status == NotificationStatus.SKIPPED
@@ -498,7 +487,7 @@ def test_11_google_chat_provider_unaffected():
     assert resolved == "spaces/OVERRIDE_SPACE"
 
 
-def test_12_notification_event_records_sent_failed_dryrun(audit_db, sample_subject):
+def test_12_notification_event_records_sent_failed_dryrun(db_session, sample_subject):
     """12. NotificationEvent correctly records SENT, FAILED, and DRY_RUN states."""
     target_date = date(2026, 9, 29)
     decision = DecisionEngine.evaluate(
@@ -513,43 +502,43 @@ def test_12_notification_event_records_sent_failed_dryrun(audit_db, sample_subje
     )
 
     # 1. DRY RUN
-    notif_svc = NotificationService(provider=RecordingProvider(is_dry_run=True), db=audit_db)
+    notif_svc = NotificationService(provider=RecordingProvider(is_dry_run=True), db=db_session)
     notif_svc.process_decision(decision)
-    event1 = audit_db.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
+    event1 = db_session.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
     assert event1.status == NotificationStatus.SKIPPED
     assert event1.dry_run is True
 
     # Clear event for next test
-    audit_db.delete(event1)
-    audit_db.commit()
+    db_session.delete(event1)
+    db_session.commit()
 
     # 2. SENT
-    notif_svc_live = NotificationService(provider=RecordingProvider(is_dry_run=False), db=audit_db)
+    notif_svc_live = NotificationService(provider=RecordingProvider(is_dry_run=False), db=db_session)
     notif_svc_live.process_decision(decision)
-    event2 = audit_db.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
+    event2 = db_session.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
     assert event2.status == NotificationStatus.SENT
     assert event2.dry_run is False
 
     # Clear event for next test
-    audit_db.delete(event2)
-    audit_db.commit()
+    db_session.delete(event2)
+    db_session.commit()
 
     # 3. FAILED
     failing_provider = RecordingProvider(is_dry_run=False, should_fail=True)
-    notif_svc_fail = NotificationService(provider=failing_provider, db=audit_db)
+    notif_svc_fail = NotificationService(provider=failing_provider, db=db_session)
     notif_svc_fail.process_decision(decision)
-    event3 = audit_db.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
+    event3 = db_session.query(NotificationEvent).filter_by(subject_id=sample_subject.id).first()
     assert event3.status == NotificationStatus.FAILED
     assert "Simulated external provider crash" in event3.error_message
 
 
-def test_13_provider_failures_never_crash_scheduler(audit_db, sample_subject):
+def test_13_provider_failures_never_crash_scheduler(db_session, sample_subject):
     """13. Provider failures never crash the scheduler."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     crashing_provider = RecordingProvider(is_dry_run=False, should_fail=True)
-    runner = DailyCheckRunner(db=audit_db, notification_provider=crashing_provider)
+    runner = DailyCheckRunner(db=db_session, notification_provider=crashing_provider)
 
     # Scheduler MUST finish with status SUCCESS and not raise an unhandled exception
     res = runner.run_daily_check(
@@ -620,17 +609,17 @@ def test_16_notification_message_content():
     assert "Could you kindly review the attendance record at your convenience?" in body
 
 
-def test_17_cancelled_and_holiday_classes_no_notification(audit_db, sample_subject):
+def test_17_cancelled_and_holiday_classes_no_notification(db_session, sample_subject):
     """17. Verify that no notification is sent for cancelled classes or holidays."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     # Add holiday
-    audit_db.add(Holiday(date=target_date, description="Founders Day"))
-    audit_db.commit()
+    db_session.add(Holiday(date=target_date, description="Founders Day"))
+    db_session.commit()
 
     dec = DecisionEngine().evaluate_subject_record(
-        db=audit_db,
+        db=db_session,
         target_date=target_date,
         subject_code=sample_subject.code,
         status=AttendanceStatus.ABSENT,
@@ -641,24 +630,24 @@ def test_17_cancelled_and_holiday_classes_no_notification(audit_db, sample_subje
     assert dec.is_eligible is False
 
 
-def test_18_extra_classes_handled_correctly(audit_db, sample_subject):
+def test_18_extra_classes_handled_correctly(db_session, sample_subject):
     """18. Verify that EXTRA classes are handled correctly even on holidays."""
     target_date = date(2026, 9, 29)
-    ConfirmationService(audit_db).confirm_attendance(target_date)
+    ConfirmationService(db_session).confirm_attendance(target_date)
 
     # Holiday + Extra class for this subject
-    audit_db.add(Holiday(date=target_date, description="Founders Day"))
-    audit_db.add(ClassException(
+    db_session.add(Holiday(date=target_date, description="Founders Day"))
+    db_session.add(ClassException(
         subject_id=sample_subject.id,
         date=target_date,
         exception_type=ExceptionType.EXTRA,
         start_time=time(10, 0),
         end_time=time(11, 0),
     ))
-    audit_db.commit()
+    db_session.commit()
 
     dec = DecisionEngine().evaluate_subject_record(
-        db=audit_db,
+        db=db_session,
         target_date=target_date,
         subject_code=sample_subject.code,
         status=AttendanceStatus.ABSENT,
@@ -683,7 +672,7 @@ def test_19_all_existing_apis_unaffected():
     assert client.get("/api/notifications/providers").status_code == 200
 
 
-def test_20_complete_seven_step_notification_flow(audit_db, sample_subject):
+def test_20_complete_seven_step_notification_flow(db_session, sample_subject):
     """Audit and test the complete 7-step notification flow sequentially:
     1. Student attendance confirmation = confirmed
     2. Attendance result = ABSENT
@@ -694,7 +683,7 @@ def test_20_complete_seven_step_notification_flow(audit_db, sample_subject):
     7. Running the same check twice must prevent duplicate notification and return ALREADY_NOTIFIED
     """
     target_date = date(2026, 9, 29)
-    conf_svc = ConfirmationService(audit_db)
+    conf_svc = ConfirmationService(db_session)
 
     # 1. Student attendance confirmation = confirmed
     assert conf_svc.is_confirmed(target_date) is False
@@ -725,7 +714,7 @@ def test_20_complete_seven_step_notification_flow(audit_db, sample_subject):
     # 4. Decision engine returns ELIGIBLE_FOR_NOTIFICATION
     engine = DecisionEngine()
     decision = engine.evaluate_subject_record(
-        db=audit_db,
+        db=db_session,
         target_date=target_date,
         subject_code=sample_subject.code,
         status=records[0].status,
@@ -744,7 +733,7 @@ def test_20_complete_seven_step_notification_flow(audit_db, sample_subject):
 
     notif_svc = NotificationService(
         provider=gmail_dry_run_provider,
-        db=audit_db,
+        db=db_session,
         student_name="Alex Student",
     )
 
@@ -783,7 +772,7 @@ def test_20_complete_seven_step_notification_flow(audit_db, sample_subject):
 
     # Notification event recorded as SKIPPED
     event = (
-        audit_db.query(NotificationEvent)
+        db_session.query(NotificationEvent)
         .filter(
             NotificationEvent.subject_code == sample_subject.code,
             NotificationEvent.date == target_date,
@@ -797,7 +786,7 @@ def test_20_complete_seven_step_notification_flow(audit_db, sample_subject):
 
     # 7. Running the same check twice must prevent duplicate notification and return ALREADY_NOTIFIED
     decision_run_2 = engine.evaluate_subject_record(
-        db=audit_db,
+        db=db_session,
         target_date=target_date,
         subject_code=sample_subject.code,
         status=AttendanceStatus.ABSENT,
@@ -814,7 +803,7 @@ def test_20_complete_seven_step_notification_flow(audit_db, sample_subject):
 
     # Also test via full DailyCheckRunner to verify pipeline-level duplicate suppression
     runner = DailyCheckRunner(
-        db=audit_db,
+        db=db_session,
         notification_provider=gmail_dry_run_provider,
     )
     check_result = runner.run_daily_check(
@@ -832,7 +821,7 @@ def test_20_complete_seven_step_notification_flow(audit_db, sample_subject):
 
     # Confirm database event count remains exactly 1 (no duplicate record)
     total_events = (
-        audit_db.query(NotificationEvent)
+        db_session.query(NotificationEvent)
         .filter(
             NotificationEvent.subject_code == sample_subject.code,
             NotificationEvent.date == target_date,
