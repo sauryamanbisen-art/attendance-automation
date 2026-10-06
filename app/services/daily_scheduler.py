@@ -180,13 +180,20 @@ class DailyCheckRunner:
         # 2. Schedule resolution and timetable gating (verify if classes actually occurred on this date)
         timetable_service = TimetableService(self.db)
         is_holiday = timetable_service.is_holiday(eff_date)
-        has_configured_slots = self.db.query(TimetableSlot).count() > 0
         expected_subjects = timetable_service.get_classes_for_date(eff_date)
 
-        if has_configured_slots:
-            expected_subjects = [s for s in expected_subjects if is_valid_curriculum_code(s.code)]
-            expected_subject_codes = {s.code: s for s in expected_subjects}
-            if len(expected_subject_codes) == 0:
+        current_time = datetime.now().time()
+        filtered_subjects = []
+        for s in expected_subjects:
+            if is_valid_curriculum_code(s.subject.code):
+                # Don't evaluate classes that haven't ended yet
+                if eff_date == date.today() and s.end_time > current_time:
+                    continue
+                filtered_subjects.append(s)
+        expected_subjects = filtered_subjects
+        expected_subject_codes = {s.subject.code: s.subject for s in expected_subjects}
+
+        if len(expected_subject_codes) == 0:
                 logger.info(
                     "No verified classes scheduled for %s (holiday or non-class day). Skipping check.",
                     eff_date.isoformat(),
@@ -210,7 +217,7 @@ class DailyCheckRunner:
                     dry_run=is_dry_run,
                 )
         else:
-            expected_subject_codes = {s.code: s for s in expected_subjects}
+            expected_subject_codes = {s.subject.code: s.subject for s in expected_subjects}
 
         # 3. Check student daily attendance confirmation ('I WENT TO COLLEGE')
         if not self.confirmation_service.is_confirmed(eff_date):
@@ -297,12 +304,12 @@ class DailyCheckRunner:
 
         for rec in records:
             # Gating Rule 1: Non-curriculum codes (e.g. CS101, ALL) are never evaluated or stored
-            if has_configured_slots and not is_valid_curriculum_code(rec.subject_code):
+            if not is_valid_curriculum_code(rec.subject_code):
                 logger.warning("Ignoring non-curriculum subject code from adapter: %s", rec.subject_code)
                 continue
 
             # Gating Rule 2: Unscheduled classes for this specific date are never evaluated or stored
-            if has_configured_slots and rec.subject_code not in expected_subject_codes:
+            if rec.subject_code not in expected_subject_codes:
                 logger.info(
                     "Subject %s is not scheduled for %s. Excluding from check reconciliation.",
                     rec.subject_code,
