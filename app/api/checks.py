@@ -39,37 +39,43 @@ def run_attendance_check(
     target_date = payload.date or date.today()
     run_id = str(uuid.uuid4())
 
+    
     # Schedule resolution and timetable gating
     timetable_service = TimetableService(db)
     is_holiday = timetable_service.is_holiday(target_date)
-    has_configured_slots = db.query(TimetableSlot).count() > 0
-    expected_subjects = timetable_service.get_classes_for_date(target_date)
+    scheduled_classes = timetable_service.get_classes_for_date(target_date)
 
-    if has_configured_slots:
-        expected_subjects = [s for s in expected_subjects if is_valid_curriculum_code(s.code)]
-        expected_subject_codes = {s.code: s for s in expected_subjects}
-        if len(expected_subject_codes) == 0:
-            # When timetable is configured and 0 classes are scheduled for this date (holiday/weekend)
-            check_record = AttendanceCheck(
-                run_id=run_id,
-                check_date=target_date,
-                checked_at=datetime.now(timezone.utc),
-                adapter_name="scheduled_calendar",
-                status=CheckStatus.SUCCESS,
-                error_message=None,
-            )
-            db.add(check_record)
-            db.commit()
-            return CheckRunResponse(
-                run_id=run_id,
-                check_date=target_date,
-                adapter_name="scheduled_calendar",
-                status=CheckStatus.SUCCESS,
-                results=[],
-                decisions=[],
-            )
-    else:
-        expected_subject_codes = {s.code: s for s in expected_subjects}
+    expected_subject_codes = {}
+    current_time = datetime.now().time()
+    
+    for c in scheduled_classes:
+        if is_valid_curriculum_code(c.subject.code):
+            # Never evaluate a class before its scheduled end time
+            if target_date == date.today() and c.end_time > current_time:
+                continue
+            expected_subject_codes[c.subject.code] = c.subject
+
+    if len(expected_subject_codes) == 0:
+        # When 0 classes are scheduled for this date or all classes are in the future
+        check_record = AttendanceCheck(
+            run_id=run_id,
+            check_date=target_date,
+            checked_at=datetime.now(timezone.utc),
+            adapter_name="scheduled_calendar",
+            status=CheckStatus.SUCCESS,
+            error_message=None,
+        )
+        db.add(check_record)
+        db.commit()
+        return CheckRunResponse(
+            run_id=run_id,
+            check_date=target_date,
+            adapter_name="scheduled_calendar",
+            status=CheckStatus.SUCCESS,
+            results=[],
+            decisions=[],
+        )
+
 
     # Instantiate adapter via factory (respects scenario override or configured adapter)
     adapter = get_portal_adapter(
@@ -100,11 +106,11 @@ def run_attendance_check(
 
         for rec in records:
             # Gating Rule 1: Non-curriculum codes (e.g. CS101, ALL) are ignored
-            if has_configured_slots and not is_valid_curriculum_code(rec.subject_code):
+            if not is_valid_curriculum_code(rec.subject_code):
                 continue
 
             # Gating Rule 2: Unscheduled classes for this date are ignored
-            if has_configured_slots and rec.subject_code not in expected_subject_codes:
+            if rec.subject_code not in expected_subject_codes:
                 continue
 
             # Gating Rule 3: Deduplicate by subject code so 5 classes cannot become 6
