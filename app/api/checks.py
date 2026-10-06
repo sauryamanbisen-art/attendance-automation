@@ -46,12 +46,22 @@ def run_attendance_check(
     scheduled_classes = timetable_service.get_classes_for_date(target_date)
 
     expected_subject_codes = {}
-    current_time = datetime.now().time()
+    
+    tz_name = settings.timezone or "Asia/Kolkata"
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+        
+    now_dt = datetime.now(tz)
+    current_date = now_dt.date()
+    current_time = now_dt.time()
     
     for c in scheduled_classes:
         if is_valid_curriculum_code(c.subject.code):
             # Never evaluate a class before its scheduled end time
-            if target_date == date.today() and c.end_time > current_time:
+            if target_date == current_date and c.end_time > current_time:
                 continue
             expected_subject_codes[c.subject.code] = c.subject
 
