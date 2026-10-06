@@ -84,8 +84,9 @@ class GoogleCalendarService:
             resp = client.get(url, params=params, headers=headers)
             
             if resp.status_code != 200:
-                logger.error(f"Failed to fetch calendar events: HTTP {resp.status_code} - {resp.text}")
-                return []
+                error_msg = f"Failed to fetch calendar events: HTTP {resp.status_code} - {resp.text}"
+                logger.error(error_msg)
+                raise GoogleCalendarServiceError(error_msg)
                 
             data = resp.json()
             return data.get("items", [])
