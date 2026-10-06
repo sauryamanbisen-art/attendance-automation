@@ -249,7 +249,7 @@ def get_attendance_history(
             exceptions_for_date = timetable_service.get_exceptions_for_date(c_date)
             date_cache[c_date] = {
                 "is_holiday": is_holiday,
-                "classes": [s.id for s in classes_for_date],
+                "classes": [s.subject.id for s in classes_for_date],
                 "cancelled": [e.subject_id for e in exceptions_for_date if e.exception_type.value == "CANCELLED"],
                 "extra": [e.subject_id for e in exceptions_for_date if e.exception_type.value == "EXTRA"]
             }
