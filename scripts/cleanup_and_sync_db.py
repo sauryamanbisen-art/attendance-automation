@@ -42,41 +42,6 @@ CURRICULUM_SUBJECTS = [
 # Wed: 301ADS, 302OPS, 304ELS, 304VEP, 306JWD (5 classes - NO Python 303PDS)
 # Thu: 301ADS, 302OPS, 303PDS, 306JWD (4 classes)
 # Fri: 301ADS, 302OPS, 304ELS, 304VEP, 306JWD (5 classes - NO Python 303PDS)
-WEEKLY_SCHEDULE = [
-    # Monday (5 classes)
-    {"weekday": 0, "code": "301ADS", "start": time(9, 0), "end": time(10, 0), "period": "Period 1"},
-    {"weekday": 0, "code": "302OPS", "start": time(10, 0), "end": time(11, 0), "period": "Period 2"},
-    {"weekday": 0, "code": "303PDS", "start": time(11, 15), "end": time(12, 15), "period": "Period 3"},
-    {"weekday": 0, "code": "304VEP", "start": time(13, 0), "end": time(14, 0), "period": "Period 4"},
-    {"weekday": 0, "code": "306JWD", "start": time(14, 0), "end": time(16, 0), "period": "Period 5"},
-
-    # Tuesday (5 classes)
-    {"weekday": 1, "code": "301ADS", "start": time(9, 0), "end": time(10, 0), "period": "Period 1"},
-    {"weekday": 1, "code": "302OPS", "start": time(10, 0), "end": time(11, 0), "period": "Period 2"},
-    {"weekday": 1, "code": "303PDS", "start": time(11, 15), "end": time(12, 15), "period": "Period 3"},
-    {"weekday": 1, "code": "304ELS", "start": time(13, 0), "end": time(14, 0), "period": "Period 4"},
-    {"weekday": 1, "code": "306JWD", "start": time(14, 0), "end": time(16, 0), "period": "Period 5"},
-
-    # Wednesday (5 classes - Python 303PDS is NOT scheduled)
-    {"weekday": 2, "code": "301ADS", "start": time(9, 0), "end": time(10, 0), "period": "Period 1"},
-    {"weekday": 2, "code": "302OPS", "start": time(10, 0), "end": time(11, 0), "period": "Period 2"},
-    {"weekday": 2, "code": "304ELS", "start": time(11, 15), "end": time(12, 15), "period": "Period 3"},
-    {"weekday": 2, "code": "304VEP", "start": time(13, 0), "end": time(14, 0), "period": "Period 4"},
-    {"weekday": 2, "code": "306JWD", "start": time(14, 0), "end": time(16, 0), "period": "Period 5"},
-
-    # Thursday (4 classes)
-    {"weekday": 3, "code": "301ADS", "start": time(9, 0), "end": time(10, 0), "period": "Period 1"},
-    {"weekday": 3, "code": "302OPS", "start": time(10, 0), "end": time(11, 0), "period": "Period 2"},
-    {"weekday": 3, "code": "303PDS", "start": time(11, 15), "end": time(12, 15), "period": "Period 3"},
-    {"weekday": 3, "code": "306JWD", "start": time(14, 0), "end": time(16, 0), "period": "Period 4"},
-
-    # Friday (5 classes - Python 303PDS is NOT scheduled)
-    {"weekday": 4, "code": "301ADS", "start": time(9, 0), "end": time(10, 0), "period": "Period 1"},
-    {"weekday": 4, "code": "302OPS", "start": time(10, 0), "end": time(11, 0), "period": "Period 2"},
-    {"weekday": 4, "code": "304ELS", "start": time(11, 15), "end": time(12, 15), "period": "Period 3"},
-    {"weekday": 4, "code": "304VEP", "start": time(13, 0), "end": time(14, 0), "period": "Period 4"},
-    {"weekday": 4, "code": "306JWD", "start": time(14, 0), "end": time(16, 0), "period": "Period 5"},
-]
 
 
 def run_cleanup(db: Session):
@@ -159,18 +124,8 @@ def run_cleanup(db: Session):
 
     # 6. Reconcile verified weekly timetable slots
     db.query(TimetableSlot).delete()
-    for slot_def in WEEKLY_SCHEDULE:
-        subj = subject_map[slot_def["code"]]
-        slot = TimetableSlot(
-            subject_id=subj.id,
-            weekday=slot_def["weekday"],
-            start_time=slot_def["start"],
-            end_time=slot_def["end"],
-            period_name=slot_def["period"],
-        )
-        db.add(slot)
     db.commit()
-    print(f"Populated all {len(WEEKLY_SCHEDULE)} verified weekly timetable slots (Monday to Friday)")
+    print("Cleared all legacy verified weekly timetable slots (now managed dynamically by Google Calendar)")
 
     # 7. Populate official college holidays
     existing_holiday = db.query(Holiday).filter(Holiday.date == date(2026, 10, 2)).first()
