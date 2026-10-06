@@ -63,51 +63,6 @@ class MockAdapter(BasePortalAdapter):
         pass
 
 
-@pytest.fixture(autouse=True)
-def mock_google_calendar(db_session, monkeypatch):
-    def mock_get_scheduled_classes(self, target_date):
-        from app.models.timetable import TimetableSlot
-        from app.models.calendar import Holiday, ClassException, ExceptionType
-        from app.services.google_calendar_service import ScheduledClass
-        from datetime import time
-        
-        # Check holiday
-        if db_session.query(Holiday).filter(Holiday.date == target_date).first():
-            return []
-            
-        # Get base slots
-        weekday = target_date.weekday()
-        slots = db_session.query(TimetableSlot).filter(TimetableSlot.weekday == weekday).all()
-        
-        scheduled = []
-        for slot in slots:
-            scheduled.append(ScheduledClass(
-                subject=slot.subject,
-                start_time=slot.start_time,
-                end_time=slot.end_time,
-                is_cancelled=False
-            ))
-            
-        exceptions = db_session.query(ClassException).filter(ClassException.date == target_date).all()
-        cancelled_ids = {e.subject_id for e in exceptions if e.exception_type == ExceptionType.CANCELLED}
-        extra = [e for e in exceptions if e.exception_type == ExceptionType.EXTRA]
-        
-        # filter cancelled
-        scheduled = [s for s in scheduled if s.subject.id not in cancelled_ids]
-        
-        # add extra
-        for e in extra:
-            scheduled.append(ScheduledClass(
-                subject=e.subject,
-                start_time=e.start_time or time(0, 0),
-                end_time=e.end_time or time(23, 59),
-                is_extra=True
-            ))
-            
-        return scheduled
-
-    from app.services.google_calendar_service import GoogleCalendarService
-    monkeypatch.setattr(GoogleCalendarService, "get_scheduled_classes", mock_get_scheduled_classes)
 
 
 @pytest.fixture
