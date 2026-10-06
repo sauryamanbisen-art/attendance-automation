@@ -59,6 +59,18 @@ class TestDailySchedulerIntegrationPipeline:
 
         db_session.add_all([subj1, subj2, subj3, subj4])
         db_session.flush()
+        # Insert TimetableSlots to mock calendar events
+        from app.models.timetable import TimetableSlot
+        from datetime import time
+        slots = [
+            TimetableSlot(subject_id=subj1.id, weekday=0, start_time=time(9), end_time=time(10)),
+            TimetableSlot(subject_id=subj2.id, weekday=0, start_time=time(10), end_time=time(11)),
+            TimetableSlot(subject_id=subj3.id, weekday=0, start_time=time(11), end_time=time(12)),
+            TimetableSlot(subject_id=subj4.id, weekday=0, start_time=time(12), end_time=time(13)),
+        ]
+        db_session.add_all(slots)
+        db_session.flush()
+
 
         map1 = ProfessorMapping(
             subject_id=subj1.id,
@@ -311,8 +323,8 @@ class TestDailySchedulerIntegrationPipeline:
         assert result.status == "SUCCESS"
         assert result.eligible_count == 0
         assert result.notifications_sent == 0
-        assert result.decisions[0].action == DecisionAction.NO_ACTION
-        assert result.decisions[0].reason == DecisionReason.HOLIDAY
+        assert len(result.decisions) == 0
+        assert result.reason == "NO_CLASSES_SCHEDULED"
 
         # Verify no NotificationEvent in DB
         events = db_session.query(NotificationEvent).filter(NotificationEvent.date == target_date).all()
