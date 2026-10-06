@@ -181,15 +181,27 @@ class DailyCheckRunner:
         timetable_service = TimetableService(self.db)
         is_holiday = timetable_service.is_holiday(eff_date)
         expected_subjects = timetable_service.get_classes_for_date(eff_date)
+        tz_name = self.settings.timezone or "Asia/Kolkata"
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = timezone.utc
+            
+        now_dt = datetime.now(tz)
+        current_date = now_dt.date()
+        current_time = now_dt.time()
 
-        current_time = datetime.now().time()
         filtered_subjects = []
         for s in expected_subjects:
             if is_valid_curriculum_code(s.subject.code):
                 # Don't evaluate classes that haven't ended yet
-                if eff_date == date.today() and s.end_time > current_time:
+                if eff_date == current_date and s.end_time > current_time:
+                    logger.debug(f"Skipping {s.subject.code}: class ends at {s.end_time}, current time is {current_time}")
                     continue
+                logger.debug(f"Including {s.subject.code} for evaluation.")
                 filtered_subjects.append(s)
+
         expected_subjects = filtered_subjects
         expected_subject_codes = {s.subject.code: s.subject for s in expected_subjects}
 
