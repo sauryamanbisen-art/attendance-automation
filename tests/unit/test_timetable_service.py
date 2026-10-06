@@ -36,11 +36,11 @@ def test_regular_weekday_schedule(db_session: Session) -> None:
 
     mon_classes = service.get_classes_for_date(monday)
     assert len(mon_classes) == 1
-    assert mon_classes[0].code == "CS101"
+    assert mon_classes[0].subject.code == "CS101"
 
     tue_classes = service.get_classes_for_date(tuesday)
     assert len(tue_classes) == 1
-    assert tue_classes[0].code == "CS102"
+    assert tue_classes[0].subject.code == "CS102"
 
     assert service.is_class_scheduled("CS101", monday) is True
     assert service.is_class_scheduled("CS102", monday) is False
@@ -90,7 +90,7 @@ def test_cancelled_classes(db_session: Session) -> None:
 
     classes = service.get_classes_for_date(monday)
     assert len(classes) == 1
-    assert classes[0].code == "CS102"
+    assert classes[0].subject.code == "CS102"
 
 
 def test_extra_classes(db_session: Session) -> None:
@@ -113,7 +113,7 @@ def test_extra_classes(db_session: Session) -> None:
 
     classes = service.get_classes_for_date(monday)
     assert len(classes) == 1
-    assert classes[0].code == "CS101"
+    assert classes[0].subject.code == "CS101"
 
 
 def test_holiday_with_extra_class(db_session: Session) -> None:
@@ -141,7 +141,7 @@ def test_holiday_with_extra_class(db_session: Session) -> None:
 
     classes = service.get_classes_for_date(monday)
     assert len(classes) == 1
-    assert classes[0].code == "CS102"
+    assert classes[0].subject.code == "CS102"
 
 
 def test_date_range_applicability(db_session: Session) -> None:
@@ -196,4 +196,4 @@ def test_multiple_periods_deduplication(db_session: Session) -> None:
     classes = service.get_classes_for_date(monday)
     # Should only return one instance of the Subject
     assert len(classes) == 1
-    assert classes[0].code == "CS101"
+    assert classes[0].subject.code == "CS101"
