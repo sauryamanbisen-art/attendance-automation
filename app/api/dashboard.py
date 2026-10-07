@@ -34,18 +34,24 @@ def get_today_dashboard(db: Session = Depends(get_db)):
     # 1. Timetable Schedule (from Google Calendar)
     timetable_service = TimetableService(db)
     is_holiday = timetable_service.is_holiday(today)
-    expected_classes = timetable_service.get_classes_for_date(today)
     
-    expected_classes_resp = [
-        SubjectResponse(
-            id=c.subject.id,
-            code=c.subject.code,
-            name=c.subject.name,
-            professor_name=c.subject.professor_mapping.professor_name if c.subject.professor_mapping else None,
-            professor_email=c.subject.professor_mapping.professor_email if c.subject.professor_mapping else None,
-            google_chat_space=c.subject.professor_mapping.google_chat_space if c.subject.professor_mapping else None,
-        ) for c in expected_classes
-    ]
+    error_message = None
+    try:
+        expected_classes = timetable_service.get_classes_for_date(today)
+        expected_classes_resp = [
+            SubjectResponse(
+                id=c.subject.id,
+                code=c.subject.code,
+                name=c.subject.name,
+                professor_name=c.subject.professor_mapping.professor_name if c.subject.professor_mapping else None,
+                professor_email=c.subject.professor_mapping.professor_email if c.subject.professor_mapping else None,
+                google_chat_space=c.subject.professor_mapping.google_chat_space if c.subject.professor_mapping else None,
+            ) for c in expected_classes
+        ]
+    except Exception as e:
+        expected_classes = []
+        expected_classes_resp = []
+        error_message = str(e)
 
 
     # 2. Confirmation
@@ -113,4 +119,5 @@ def get_today_dashboard(db: Session = Depends(get_db)):
         academic_total_classes=acad_tot,
         academic_sync_status=acad_status,
         discrepancies_count=discrepancies_count,
+        error_message=error_message,
     )
