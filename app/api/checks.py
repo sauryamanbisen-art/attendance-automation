@@ -43,7 +43,29 @@ def run_attendance_check(
     # Schedule resolution and timetable gating
     timetable_service = TimetableService(db)
     is_holiday = timetable_service.is_holiday(target_date)
-    scheduled_classes = timetable_service.get_classes_for_date(target_date)
+    try:
+        scheduled_classes = timetable_service.get_classes_for_date(target_date)
+    except Exception as e:
+        logger.error(f"Failed to fetch schedule in manual check: {e}")
+        check_record = AttendanceCheck(
+            run_id=run_id,
+            check_date=target_date,
+            checked_at=datetime.now(timezone.utc),
+            adapter_name="scheduled_calendar",
+            status=CheckStatus.FAILED,
+            error_message=str(e),
+        )
+        db.add(check_record)
+        db.commit()
+        return CheckRunResponse(
+            run_id=run_id,
+            check_date=target_date,
+            adapter_name="scheduled_calendar",
+            status=CheckStatus.FAILED,
+            results=[],
+            decisions=[],
+            error_message=str(e),
+        )
 
     expected_subject_codes = {}
     
