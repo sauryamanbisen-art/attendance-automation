@@ -41,7 +41,7 @@ class TimetableService:
             return [c for c in scheduled_classes if not c.is_cancelled]
         except Exception as e:
             logger.error(f"Failed to fetch schedule from Google Calendar: {e}")
-            return []
+            raise
 
     def is_class_scheduled(self, subject_code: str, target_date: date) -> bool:
         """Check if a specific subject is scheduled for a given date."""
