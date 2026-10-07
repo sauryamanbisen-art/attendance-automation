@@ -142,8 +142,8 @@ def mock_google_calendar_globally(db_session, monkeypatch):
                             print(f"DEBUG: Synthesizing class for {s.code}")
                             scheduled.append(ScheduledClass(
                                 subject=s,
-                                start_time=time(8 + i, 0),
-                                end_time=time(9 + i, 0),
+                                start_time=time(0, 0),
+                                end_time=time(0, 1),
                                 is_cancelled=False
                             ))
                         

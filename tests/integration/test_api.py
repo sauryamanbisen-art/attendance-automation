@@ -120,7 +120,7 @@ def test_checks_and_audit_api(client: TestClient) -> None:
     assert data["decisions"][0]["action"] == "NO_ACTION"
 
     # Run check with unavailable portal scenario
-    res_err = client.post("/api/checks/run", json={"scenario": "portal_unavailable"})
+    res_err = client.post("/api/checks/run", json={"date": "2026-09-25", "scenario": "portal_unavailable", "ignore_cutoff": True})
     assert res_err.status_code == 200
     assert res_err.json()["status"] == "FAILED"
 

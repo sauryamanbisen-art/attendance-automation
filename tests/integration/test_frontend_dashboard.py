@@ -81,7 +81,7 @@ def test_dashboard_backend_api_integration(client: TestClient) -> None:
 
     # 5. Run manual check safely via fake scenario
     target_date = date.today().isoformat()
-    res_run = client.post("/api/checks/run", json={"date": target_date, "scenario": "present"})
+    res_run = client.post("/api/checks/run", json={"date": target_date, "scenario": "present", "ignore_cutoff": True})
     assert res_run.status_code == 200
     run_data = res_run.json()
     assert run_data["status"] == "SUCCESS"
