@@ -42,8 +42,7 @@ class GoogleCalendarService:
         """Fetch all calendar events for the given date from the primary calendar."""
         token = self.oauth_service.token_storage.load_token()
         if not token:
-            logger.warning("No OAuth token available. Cannot fetch Google Calendar events.")
-            return []
+            raise GoogleCalendarServiceError("GOOGLE_AUTH_REQUIRED")
             
         if token.is_expired():
             # Attempt to refresh
@@ -52,11 +51,10 @@ class GoogleCalendarService:
                 try:
                     token = self.oauth_service.oauth_client.refresh_access_token()
                 except Exception as e:
-                    logger.error(f"Failed to refresh token: {e}")
-                    return []
+                    logger.error(f"Failed to refresh OAuth token: {e}")
+                    raise GoogleCalendarServiceError("GOOGLE_AUTH_REQUIRED")
             else:
-                logger.warning("Token expired and no refresh token available.")
-                return []
+                raise GoogleCalendarServiceError("GOOGLE_AUTH_REQUIRED")
 
         tz_str = self.settings.timezone or "Asia/Kolkata"
         try:

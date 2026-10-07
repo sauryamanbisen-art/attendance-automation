@@ -180,7 +180,29 @@ class DailyCheckRunner:
         # 2. Schedule resolution and timetable gating (verify if classes actually occurred on this date)
         timetable_service = TimetableService(self.db)
         is_holiday = timetable_service.is_holiday(eff_date)
-        expected_subjects = timetable_service.get_classes_for_date(eff_date)
+        try:
+            expected_subjects = timetable_service.get_classes_for_date(eff_date)
+        except Exception as e:
+            logger.error("Failed to retrieve expected subjects for %s: %s", eff_date.isoformat(), e)
+            self.audit_service.log(
+                event_type=AuditEventType.ATTENDANCE_CHECK,
+                action="SCHEDULER_ERROR",
+                entity_type="attendance_checks",
+                run_id=run_id,
+                details={
+                    "reason": "SCHEDULE_FETCH_FAILED",
+                    "error": str(e),
+                    "date": eff_date.isoformat(),
+                },
+            )
+            return DailyCheckResult(
+                run_id=run_id,
+                target_date=eff_date,
+                status="FAILED",
+                reason="SCHEDULE_FETCH_FAILED",
+                error_message=str(e),
+                dry_run=is_dry_run,
+            )
         tz_name = self.settings.timezone or "Asia/Kolkata"
         try:
             from zoneinfo import ZoneInfo
@@ -435,15 +457,55 @@ class DailyCheckRunner:
 
         notif_service = NotificationService(provider=provider, db=self.db)
         eligible_count = 0
+        base_notif_service = NotificationService(provider=provider, db=self.db)
+        eligible_count = 0
         notifications_sent = 0
 
         for dec in decisions:
             if dec.is_eligible:
                 eligible_count += 1
                 try:
-                    outcome = notif_service.process_decision(dec)
+                    current_service = base_notif_service
+                    
+                    if dec.subject_code == "304VEP":
+                        logger.info("DEBUG 304VEP: status=%s (name=%s, val=%s), confirmed=%s", dec.status, getattr(dec.status, 'name', 'NO_NAME'), dec.status.value, dec.is_confirmed)
+                    
+                    # LIVE TEST OVERRIDE:
+                    is_live_test = (dec.subject_code == "304VEP" and dec.status.name == "ABSENT" and dec.is_confirmed)
+                    if is_live_test:
+                        from app.notifications.google_chat import GoogleChatConfig, GoogleChatNotificationProvider
+                        chat_config = GoogleChatConfig(
+                            client_id=self.settings.google_chat_client_id or "",
+                            client_secret=self.settings.google_chat_client_secret or "",
+                            redirect_uri=self.settings.google_chat_redirect_uri,
+                            token_file="credentials/google_chat_token.json",
+                            default_space=self.settings.google_chat_default_space,
+                        )
+                        real_provider = GoogleChatNotificationProvider(config=chat_config, is_dry_run=False)
+                        current_service = NotificationService(provider=real_provider, db=self.db)
+
+                    outcome = current_service.process_decision(dec)
                     if outcome and outcome.success:
                         notifications_sent += 1
+                        
+                    if is_live_test:
+                        from app.models.notification_event import NotificationEvent
+                        event = self.db.query(NotificationEvent).filter_by(
+                            date=dec.target_date, subject_code=dec.subject_code
+                        ).first()
+                        event_id = event.id if event else "UNKNOWN"
+                        
+                        logger.info(
+                            "LIVE TEST DELIVERY RECORD:\nsubject: %s\nprofessor: %s\nportal status: %s\ndecision: %s\nnotification channel: %s\nGoogle Chat delivery result: %s\nnotification event ID: %s",
+                            dec.subject_code,
+                            dec.professor_email,
+                            dec.status.name,
+                            dec.action.name,
+                            "Google Chat",
+                            "SUCCESS" if (outcome and outcome.success) else "FAILED",
+                            event_id
+                        )
+
                 except Exception as exc:
                     safe_err = redact_string(str(exc))
                     logger.error(
