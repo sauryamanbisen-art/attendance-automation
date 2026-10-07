@@ -192,6 +192,28 @@ export class DashboardController {
     const data = this.currentData;
     if (!data) return;
 
+    // 0. Global Error Banner
+    const globalErrorBanner = document.getElementById('dashboard-global-error-banner');
+    const globalErrorText = document.getElementById('dashboard-global-error-text');
+    if (globalErrorBanner && globalErrorText) {
+      if (data.error_message) {
+        globalErrorBanner.style.display = 'flex';
+        if (data.error_message === 'GOOGLE_AUTH_REQUIRED') {
+            globalErrorText.innerHTML = `
+              <div>
+                <strong>Google Authentication Required</strong>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; opacity: 0.9;">Your Google Calendar connection has expired or been revoked. AttendFlow needs read-access to your calendar to fetch your real schedule.</p>
+                <a href="#settings" style="display: inline-block; margin-top: 0.5rem; color: var(--color-danger); text-decoration: underline; font-weight: 600;">Go to Settings to Re-authenticate &rarr;</a>
+              </div>
+            `;
+        } else {
+            globalErrorText.innerText = data.error_message;
+        }
+      } else {
+        globalErrorBanner.style.display = 'none';
+      }
+    }
+
     // 1. Date formatting
     if (this.els.heroDateBadge) {
       const d = parseLocalDate(data.today);
