@@ -158,8 +158,8 @@ class FakePortalAdapter(BasePortalAdapter):
         if self.scenario == FakeScenario.PYTHON_ABSENT:
             return [
                 SubjectAttendance(
-                    subject_code="303PDS",
-                    subject_name="Python for Data Science",
+                    subject_code="304VEP",
+                    subject_name="Data Visualization using Excel and Powerbi",
                     status=AttendanceStatus.ABSENT,
                     raw_status="Absent",
                     is_reliable=True,
