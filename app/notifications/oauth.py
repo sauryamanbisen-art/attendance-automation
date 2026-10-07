@@ -408,6 +408,9 @@ class GoogleOAuthClient:
             response = client.post(GOOGLE_TOKEN_URL, data=payload)
             if response.status_code != 200:
                 error_desc = self._extract_error_message(response)
+                if response.status_code in (400, 401):
+                    logger.warning(f"OAuth refresh token invalid or revoked ({response.status_code}). Clearing token from storage.")
+                    self.token_storage.clear_token()
                 raise OAuthAuthenticationError(f"Failed to refresh OAuth token: {error_desc}")
 
             data = response.json()
