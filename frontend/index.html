@@ -566,8 +566,8 @@
           </div>
 
           <!-- Weekly Days Grid -->
-          <div id="timetable-content" style="display: none;">
-            <div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;" id="timetable-days-container">
+          <div id="timetable-content">
+            <div class="timetable-grid" id="timetable-days-container">
               <!-- Days will be rendered here dynamically -->
             </div>
           </div>
@@ -575,7 +575,7 @@
         </section>
 
         <!-- Timetable Slot Modal -->
-        <div id="modal-timetable-slot" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-timetable-title" style="display: none;">
+        <div id="modal-timetable-slot" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-timetable-title">
           <div class="modal-content">
             <div class="card-header">
               <h3 class="card-title" id="modal-timetable-title">Add Class</h3>
@@ -605,12 +605,12 @@
                 </select>
               </div>
               
-              <div style="display: flex; gap: 1rem;">
-                <div class="form-group" style="flex: 1;">
+              <div class="timetable-form-row">
+                <div class="form-group timetable-form-col">
                   <label class="form-label">Start Time</label>
                   <input type="time" id="input-slot-start" class="form-input" required />
                 </div>
-                <div class="form-group" style="flex: 1;">
+                <div class="form-group timetable-form-col">
                   <label class="form-label">End Time</label>
                   <input type="time" id="input-slot-end" class="form-input" required />
                 </div>
@@ -621,18 +621,18 @@
                 <input type="text" id="input-slot-period" class="form-input" placeholder="e.g. Lecture, Lab" />
               </div>
 
-              <div style="display: flex; gap: 1rem;">
-                <div class="form-group" style="flex: 1;">
+              <div class="timetable-form-row">
+                <div class="form-group timetable-form-col">
                   <label class="form-label">Valid From (Optional)</label>
                   <input type="date" id="input-slot-valid-from" class="form-input" />
                 </div>
-                <div class="form-group" style="flex: 1;">
+                <div class="form-group timetable-form-col">
                   <label class="form-label">Valid To (Optional)</label>
                   <input type="date" id="input-slot-valid-to" class="form-input" />
                 </div>
               </div>
               
-              <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+              <div class="timetable-form-actions">
                 <button type="button" class="btn btn-secondary" id="btn-cancel-timetable-modal">Cancel</button>
                 <button type="submit" class="btn btn-primary" id="btn-save-timetable-slot">Save Class</button>
               </div>
