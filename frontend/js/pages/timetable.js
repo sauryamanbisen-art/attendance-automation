@@ -133,62 +133,107 @@ export class TimetableController {
 
     const todayWeekday = (new Date().getDay() + 6) % 7; // Convert JS 0=Sun to 0=Mon
 
+    // Display Monday through Saturday (6 days), or 7 if Sunday has slots
+    const daysToRender = (grouped[6] && grouped[6].length > 0) ? 7 : 6;
+
     let html = '';
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < daysToRender; i++) {
       const daySlots = grouped[i];
       const isToday = i === todayWeekday;
       
       html += `
-        <div class="card" style="padding: 1.15rem; border-top: ${isToday ? '3px solid var(--primary)' : '1px solid var(--border-medium)'}; background: ${isToday ? 'var(--neutral-white)' : 'var(--neutral-white)'}; box-shadow: ${isToday ? 'var(--shadow-md)' : 'var(--shadow-sm)'};">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border-subtle);">
-            <h3 class="card-title" style="font-size: 0.95rem; color: ${isToday ? 'var(--primary)' : 'var(--text-main)'};">
-              ${this.weekdays[i]} ${isToday ? '<span class="badge badge-success" style="margin-left: 0.35rem; font-size: 0.62rem;">TODAY</span>' : ''}
-            </h3>
-            <span style="font-size: 0.725rem; font-weight: 600; color: var(--text-muted);">${daySlots.length} class${daySlots.length === 1 ? '' : 'es'}</span>
+        <div class="timetable-day-card" data-day="${i}">
+          <div class="timetable-day-header">
+            <div class="timetable-day-title-wrap">
+              <h3 class="timetable-day-title">${this.weekdays[i]}</h3>
+              ${isToday ? '<span class="timetable-today-badge">TODAY</span>' : ''}
+            </div>
+            <span class="timetable-day-count">${daySlots.length} class${daySlots.length === 1 ? '' : 'es'}</span>
           </div>
+          <div class="timetable-day-body">
       `;
 
       if (daySlots.length === 0) {
-        html += `<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 1.5rem 0;">No classes scheduled</div>`;
+        html += `
+          <div class="timetable-empty-state">
+            <svg class="timetable-empty-icon" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="18" rx="3" ry="3"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <div class="timetable-empty-title">No classes scheduled</div>
+            <div class="timetable-empty-desc">${i === 5 ? 'Enjoy your free day!' : 'No classes for this day'}</div>
+          </div>
+        `;
       } else {
-        html += `<div style="display: flex; flex-direction: column; gap: 0.75rem;">`;
+        html += `<div class="timetable-slots-list">`;
         for (const slot of daySlots) {
           const subject = this.subjects.find(s => s.id === slot.subject_id);
           const subjName = subject ? subject.code : 'Unknown';
           const subjFullName = subject ? subject.name : '';
           
           html += `
-            <div style="background: var(--neutral-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.85rem;">
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.4rem;">
-                <div>
-                  <span class="code-tag" style="margin-bottom: 0.2rem;">${escapeHtml(subjName)}</span>
-                  ${subjFullName ? `<div style="font-size: 0.775rem; color: var(--text-muted); margin-top: 0.15rem;">${escapeHtml(subjFullName)}</div>` : ''}
-                </div>
-                <div style="display: flex; gap: 0.35rem;">
-                  <button type="button" class="btn-icon-round btn-edit-slot" data-id="${slot.id}" style="width: 28px; height: 28px; font-size: 0.75rem;" title="Edit Class">✏️</button>
-                  <button type="button" class="btn-icon-round btn-delete-slot" data-id="${slot.id}" style="width: 28px; height: 28px; font-size: 0.75rem; color: var(--color-danger); border-color: var(--tertiary-border);" title="Delete Class">🗑️</button>
+            <div class="timetable-slot-card">
+              <div class="timetable-slot-top-row">
+                <span class="timetable-code-badge">${escapeHtml(subjName)}</span>
+                <div class="timetable-slot-actions">
+                  <button type="button" class="timetable-btn-action timetable-btn-edit btn-edit-slot" data-id="${slot.id}" aria-label="Edit ${escapeHtml(subjName)} class" title="Edit Class">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                  <button type="button" class="timetable-btn-action timetable-btn-delete btn-delete-slot" data-id="${slot.id}" aria-label="Delete ${escapeHtml(subjName)} class" title="Delete Class">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                    <span>Delete</span>
+                  </button>
                 </div>
               </div>
-              
-              <div style="font-size: 0.8rem; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 0.4rem; font-family: var(--font-mono); margin-top: 0.4rem;">
-                <span aria-hidden="true">⏱</span> ${slot.start_time.slice(0, 5)} - ${slot.end_time.slice(0, 5)}
-              </div>
-              
-              ${slot.period_name ? `<div style="font-size: 0.725rem; color: var(--text-muted); margin-top: 0.2rem;">📍 ${escapeHtml(slot.period_name)}</div>` : ''}
-              ${slot.valid_from || slot.valid_to ? `
-                <div style="font-size: 0.7rem; margin-top: 0.35rem; color: var(--color-warning);">
-                  Valid: ${slot.valid_from ? slot.valid_from : 'Start'} to ${slot.valid_to ? slot.valid_to : 'End'}
+
+              ${subjFullName ? `<div class="timetable-slot-name">${escapeHtml(subjFullName)}</div>` : ''}
+
+              <div class="timetable-slot-meta">
+                <div class="timetable-slot-time">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  <span>${slot.start_time.slice(0, 5)} - ${slot.end_time.slice(0, 5)}</span>
                 </div>
-              ` : ''}
+
+                ${slot.period_name ? `
+                  <div class="timetable-slot-period">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                      <circle cx="12" cy="10" r="3"/>
+                    </svg>
+                    <span>${escapeHtml(slot.period_name)}</span>
+                  </div>
+                ` : ''}
+
+                ${slot.valid_from || slot.valid_to ? `
+                  <div class="timetable-slot-validity">
+                    Valid: ${slot.valid_from ? slot.valid_from : 'Start'} to ${slot.valid_to ? slot.valid_to : 'End'}
+                  </div>
+                ` : ''}
+              </div>
             </div>
           `;
         }
         html += `</div>`;
       }
-      
-      html += `</div>`;
+
+      html += `
+          </div>
+        </div>
+      `;
     }
-    
+
     this.els.daysContainer.innerHTML = html;
   }
 
