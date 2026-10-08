@@ -11,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
   <link rel="stylesheet" href="/static/css/shell.css">
+  <link rel="stylesheet" href="/static/css/timetable.css">
 </head>
 <body>
   <div class="app-shell">
@@ -541,16 +542,27 @@
             </div>
           </div>
 
-          <div id="timetable-loading" class="empty-state">
-            <div class="empty-state-icon pulse">⏳</div>
+          <div id="timetable-loading" class="timetable-state-box">
+            <div class="timetable-state-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pulse">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
             <div class="empty-state-title">Loading Timetable...</div>
           </div>
 
-          <div id="timetable-error" class="empty-state" style="display: none;">
-            <div class="empty-state-icon">⚠️</div>
+          <div id="timetable-error" class="timetable-state-box">
+            <div class="timetable-state-icon state-danger">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </div>
             <div class="empty-state-title">Failed to load timetable</div>
             <p class="empty-state-text" id="timetable-error-text"></p>
-            <button class="btn btn-primary" id="btn-retry-timetable" style="margin-top: 1rem;">Retry</button>
+            <button class="btn btn-primary timetable-btn-retry" id="btn-retry-timetable">Retry</button>
           </div>
 
           <!-- Weekly Days Grid -->
