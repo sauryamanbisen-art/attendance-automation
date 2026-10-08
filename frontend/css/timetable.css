@@ -1,0 +1,143 @@
+/* ==============================================================================
+   AttendFlow - Weekly Timetable Stylesheet
+   Page: #page-timetable
+   Theme: Warm Organic, Deep Forest Green (#183A37), Sage (#6B806E), Terracotta (#C8755D)
+   ============================================================================== */
+
+/* Section Layout */
+#page-timetable {
+  padding-bottom: 2rem;
+}
+
+#page-timetable .page-header-row {
+  margin-bottom: 1.5rem;
+}
+
+#page-timetable .page-header-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--secondary, #6B806E);
+  margin-bottom: 0.25rem;
+}
+
+#page-timetable .page-header-title {
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: var(--primary, #183A37);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+#page-timetable .page-header-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6B7770);
+  margin-top: 0.35rem;
+}
+
+/* ==============================================================================
+   Weekly Days Grid
+   Desktop: 3 equal-width columns arranged in 2 rows
+   Tablet: 2 equal-width columns
+   Mobile: 1 column
+   ============================================================================== */
+#page-timetable .timetable-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+@media (max-width: 1024px) and (min-width: 641px) {
+  #page-timetable .timetable-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  #page-timetable .timetable-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+/* ==============================================================================
+   Day Card
+   All six day cards have equal widths and equal heights
+   ============================================================================== */
+#page-timetable .timetable-day-card {
+  background-color: var(--bg-card, #FFFFFF);
+  border: 1px solid var(--border-medium, #E2E5DF);
+  border-radius: var(--radius-xl, 14px);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(37, 40, 39, 0.04));
+  padding: 1.15rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+#page-timetable .timetable-day-card:hover {
+  box-shadow: var(--shadow-md, 0 3px 8px rgba(37, 40, 39, 0.07));
+}
+
+/* Day Header */
+#page-timetable .timetable-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle, #EEF0EB);
+  flex-shrink: 0;
+}
+
+#page-timetable .timetable-day-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#page-timetable .timetable-day-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-main, #1F2925);
+  margin: 0;
+  line-height: 1.2;
+}
+
+#page-timetable .timetable-today-badge {
+  background-color: var(--color-success-bg, #E2EFE7);
+  color: var(--color-success, #1E6C40);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.18rem 0.5rem;
+  border-radius: var(--radius-full, 9999px);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+}
+
+#page-timetable .timetable-day-count {
+  font-size: 0.775rem;
+  font-weight: 500;
+  color: var(--text-subtle, #8E9A92);
+}
+
+/* Day Body */
+#page-timetable .timetable-day-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Slots List */
+#page-timetable .timetable-slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
