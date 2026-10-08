@@ -141,3 +141,239 @@
   flex-direction: column;
   gap: 0.65rem;
 }
+
+/* ==============================================================================
+   Individual Class Card
+   ============================================================================== */
+#page-timetable .timetable-slot-card {
+  background-color: var(--neutral-surface, #F8FAF7);
+  border: 1px solid var(--border-subtle, #EEF0EB);
+  border-radius: var(--radius-md, 10px);
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+#page-timetable .timetable-slot-card:hover {
+  border-color: var(--border-medium, #DFE3DC);
+  background-color: var(--bg-card-hover, #F5F8F4);
+}
+
+/* Card Top Row */
+#page-timetable .timetable-slot-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#page-timetable .timetable-code-badge {
+  display: inline-block;
+  background-color: var(--primary-light, #E2EFE7);
+  color: var(--primary, #183A37);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+}
+
+#page-timetable .timetable-slot-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* Action Buttons (Edit & Delete) */
+#page-timetable .timetable-btn-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1.25;
+  transition: all 0.15s ease;
+}
+
+#page-timetable .timetable-btn-edit {
+  background-color: var(--color-success-bg, #EAF4EE);
+  border: 1px solid var(--color-success-border, #C7E5D1);
+  color: var(--color-success, #1E6C40);
+}
+
+#page-timetable .timetable-btn-edit:hover {
+  background-color: #DDEEE3;
+  border-color: #B5DBC2;
+}
+
+#page-timetable .timetable-btn-delete {
+  background-color: var(--color-danger-bg, #FDF0F0);
+  border: 1px solid var(--color-danger-border, #F8CECE);
+  color: var(--color-danger, #B92E2E);
+}
+
+#page-timetable .timetable-btn-delete:hover {
+  background-color: #FAE4E4;
+  border-color: #F1BABA;
+}
+
+/* Slot Subject Full Name */
+#page-timetable .timetable-slot-name {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--text-muted, #6B7770);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+/* Slot Meta Info */
+#page-timetable .timetable-slot-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.15rem;
+}
+
+#page-timetable .timetable-slot-time {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  color: var(--text-body, #47504A);
+}
+
+#page-timetable .timetable-slot-time svg {
+  color: var(--text-muted, #6B7770);
+  flex-shrink: 0;
+}
+
+#page-timetable .timetable-slot-period {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.725rem;
+  color: var(--text-muted, #6B7770);
+  font-weight: 400;
+}
+
+#page-timetable .timetable-slot-period svg {
+  color: var(--tertiary, #C8755D);
+  flex-shrink: 0;
+}
+
+#page-timetable .timetable-slot-validity {
+  font-size: 0.68rem;
+  color: var(--color-warning, #B3583E);
+  margin-top: 0.15rem;
+}
+
+/* ==============================================================================
+   Empty State (Saturday & Days with 0 classes)
+   ============================================================================== */
+#page-timetable .timetable-empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2.5rem 1rem;
+  min-height: 240px;
+}
+
+#page-timetable .timetable-empty-icon {
+  color: var(--primary, #183A37);
+  margin-bottom: 0.85rem;
+  opacity: 0.9;
+}
+
+#page-timetable .timetable-empty-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--primary, #183A37);
+  margin-bottom: 0.25rem;
+}
+
+#page-timetable .timetable-empty-desc {
+  font-size: 0.825rem;
+  color: var(--text-subtle, #8E9A92);
+  margin: 0;
+}
+
+/* ==============================================================================
+   Loading & Error State Containers
+   ============================================================================== */
+#page-timetable .timetable-state-box {
+  text-align: center;
+  padding: 3.5rem 1.5rem;
+  background-color: var(--neutral-white, #FFFFFF);
+  border: 1px solid var(--border-medium, #E2E5DF);
+  border-radius: var(--radius-xl, 14px);
+}
+
+#page-timetable .timetable-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+  color: var(--primary, #183A37);
+}
+
+#page-timetable .timetable-state-icon.state-danger {
+  color: var(--color-danger, #B92E2E);
+}
+
+#page-timetable .timetable-state-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-main, #252827);
+  margin-bottom: 0.35rem;
+}
+
+#page-timetable .timetable-state-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6B7770);
+  max-width: 440px;
+  margin: 0 auto;
+}
+
+#page-timetable .timetable-btn-retry {
+  margin-top: 1rem;
+}
+
+/* Initial visibility states (no inline styles required in HTML) */
+#page-timetable #timetable-error,
+#page-timetable #timetable-content,
+#modal-timetable-slot {
+  display: none;
+}
+
+/* Modal Helper Layouts for Timetable */
+#modal-timetable-slot .timetable-form-row {
+  display: flex;
+  gap: 1rem;
+}
+
+#modal-timetable-slot .timetable-form-col {
+  flex: 1;
+}
+
+#modal-timetable-slot .timetable-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
