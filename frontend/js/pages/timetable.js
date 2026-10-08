@@ -77,12 +77,18 @@ export class TimetableController {
         }
       });
     }
+
+    // Keep card heights synchronized on resize
+    window.addEventListener('resize', () => this.syncDayCardHeights());
   }
 
   showState(state) {
     this.els.loading.style.display = state === 'loading' ? 'block' : 'none';
     this.els.error.style.display = state === 'error' ? 'block' : 'none';
     this.els.content.style.display = state === 'content' ? 'block' : 'none';
+    if (state === 'content') {
+      requestAnimationFrame(() => this.syncDayCardHeights());
+    }
   }
 
   async loadData() {
@@ -235,6 +241,33 @@ export class TimetableController {
     }
 
     this.els.daysContainer.innerHTML = html;
+    requestAnimationFrame(() => this.syncDayCardHeights());
+  }
+
+  syncDayCardHeights() {
+    if (!this.els.daysContainer) return;
+    const cards = this.els.daysContainer.querySelectorAll('.timetable-day-card');
+    if (!cards.length) return;
+
+    // Reset inline min-height first to compute natural layout heights
+    cards.forEach(card => {
+      card.style.minHeight = '';
+    });
+
+    // In multi-column views (> 640px), synchronize card heights to the tallest
+    if (window.innerWidth > 640) {
+      let maxHeight = 0;
+      cards.forEach(card => {
+        const h = card.getBoundingClientRect().height;
+        if (h > maxHeight) maxHeight = h;
+      });
+
+      if (maxHeight > 0) {
+        cards.forEach(card => {
+          card.style.minHeight = `${Math.ceil(maxHeight)}px`;
+        });
+      }
+    }
   }
 
   openModal() {
